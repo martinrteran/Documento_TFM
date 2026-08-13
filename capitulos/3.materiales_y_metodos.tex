@@ -1,0 +1,19 @@
+\chapter{Materiales y métodos}
+
+\subsection{Evolución de la Arquitectura de Control}
+
+El desarrollo de la política de control para el robot se llevó a cabo de manera iterativa, comenzando con un enfoque más simple que permitió identificar los retos del entorno de simulación, para finalmente adoptar una solución basada en algoritmos del estado del arte.
+
+\subsubsection{Aproximación Inicial: \texttt{GridAgent}}
+En las primeras fases del desarrollo, se implementó un agente base denominado \texttt{GridAgent}. Este agente se diseñó como una primera aproximación al problema de navegación discreta. 
+
+% Aquí explicas brevemente qué hacía el GridAgent (ej. si era Q-Learning tabular, heurística, etc.)
+El objetivo de esta implementación era establecer una línea base (\textit{baseline}) de rendimiento. Sin embargo, durante las fases de prueba iniciales, se observó que este enfoque presentaba severas limitaciones. Principalmente, el agente era incapaz de generalizar a situaciones no vistas y sufría de problemas de convergencia a medida que aumentaba la complejidad del mapa y el espacio de estados. 
+
+El fracaso de esta aproximación inicial evidenció la necesidad de utilizar una arquitectura que pudiera extraer características complejas de las observaciones espaciales y estabilizar el aprendizaje, motivando la transición hacia métodos de Aprendizaje por Refuerzo Profundo continuo.
+
+\subsubsection{Transición a PPO (\texttt{PPOAgent})}
+Para superar las limitaciones del \texttt{GridAgent}, se sustituyó el núcleo del controlador por el algoritmo \textit{Proximal Policy Optimization} (PPO). Como se ha detallado anteriormente, PPO aborda los problemas de inestabilidad limitando el tamaño de las actualizaciones de la política.
+
+Toda la lógica de este agente definitivo se encuentra encapsulada en la clase \texttt{PPOAgent}, dentro del módulo \texttt{agent.py}. % Y aquí continuaría el texto que te pasé en el mensaje anterior sobre PPO...
+
