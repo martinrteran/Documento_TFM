@@ -1,8 +1,51 @@
 \chapter{Introducción}\label{chap:introduccion}
 
-\section{Motivación}
 
-\section{Propuesta y objetivos}
+\section{Motivación}\label{sec:motivacion}
+La automatización de los procesos intralogísticos es uno de los pilares de la transición hacia la manufactura flexible de la Industria 4.0 \citep{hu2020deep}. En este contexto, los Vehículos de Guiado Automático (AGVs, por sus siglas en inglés) desempeñan un papel fundamental en el transporte autónomo de componentes dentro de plantas industriales y almacenes \citep{xue2022using}. Tradicionalmente, la navegación de AGVs se ha fundamentado en planificadores de rutas clásicos que requieren información cartográfica exhaustiva previa (navegación basada en mapas, utilizando SLAM o guías físicas) \citep{sivashangaran2023deep}. Sin embargo, estas metodologías tradicionales conllevan elevados costes de instalación, mantenimiento y actualización del mapa cuando el entorno sufre alteraciones estructurales frecuentes, lo cual es habitual en entornos logísticos modernos de manufactura esbelta \citep{applsci-12-03153-v2.pdf}.
 
-\section{Estructura del documento}
+Los métodos clásicos de planificación local de rutas en tiempo real, tales como los Campos Potenciales Artificiales (APF, por sus siglas en inglés), presentan la ventaja de poseer una estructura matemática simple y un bajo coste computacional, idóneos para controles reactivos rápidos \citep{Navigation_of_mobile_robots_using_neural_networks_and_genetic_algorithms.pdf}. No obstante, sufren de limitaciones teóricas insalvables, destacando la alta propensión de quedar atrapados en situaciones de mínimos locales estables, donde la fuerza de atracción hacia el objetivo se cancela exactamente con la fuerza de repulsión de los obstáculos cercanos \citep{perez2022navigation}. Por otro lado, las heurísticas globales de búsqueda basadas en muestreo estocástico como RRT o en rejillas como $A^*$ resultan computacionalmente costosas de recalcular en entornos dinámicos en tiempo real y son sensibles al ruido sensorial local \citep{state_art_RL.pdf}.
 
+Para solventar estas barreras tecnológicas, surge la navegación reactiva libre de mapas (\textit{map-less navigation}) basada en el Aprendizaje por Refuerzo Profundo (DRL, por sus siglas en inglés) \citep{guo2025map}. Mediante DRL, es posible entrenar redes neuronales profundas que sirvan como políticas de control reactivo extremo a extremo (\textit{end-to-end}), mapeando directamente lecturas de sensores de rango locales (como nubes de puntos de LiDAR) y coordenadas relativas de la meta a comandos de actuación discretos o continuos \citep{sivashangaran2023autovrl}. Este paradigma elimina por completo la dependencia de mapas globales previos y posicionamiento SLAM robusto, lo cual dota al AGV de una robustez y flexibilidad excepcionales ante escenarios industriales impredecibles y estáticos con obstáculos no mapeados \citep{applsci-12-03153-v2.pdf}.
+
+\section{Propuesta y objetivos}\label{sec:objetivos}
+El presente trabajo de investigación propone el diseño, implementación y evaluación de un sistema de navegación reactiva map-less para un AGV operando en un entorno de rejilla discreta bidimensional con obstáculos estáticos desconocidos. La política de navegación reactiva del AGV procesa información perceptual multimodal ligera: un vector de sensado de LiDAR submuestreado en secciones regulares locales, el vector de posición relativa a la meta expresado en coordenadas polares (rumbo y distancia) y el estado de velocidad previa del robot. A partir de estas observaciones locales, la política entrenada con DRL genera decisiones sobre comandos discretos de dirección (avanzar, girar a la izquierda, girar a la derecha) con el fin de guiar al AGV de manera segura hacia la meta.
+
+Para superar el severo problema de la dispersión de recompensa (\textit{sparse reward}) inherente a las tareas de navegación de largo horizonte temporal en entornos con obstáculos, se formula una función de recompensa compuesta con penalizaciones por proximidad que moldea el comportamiento seguro del robot. Asimismo, se incorpora un Handler de Interrupciones en tiempo real (\textit{is\_stuck}) con un buffer de memoria temporal que activa un mecanismo de reinicio suave (\textit{soft reset}) de la exploración estocástica cuando el AGV cae en una zona de bloqueo o mínimo local estático de la rejilla.
+
+\textbf{Objetivo General:}
+Diseñar y evaluar una arquitectura de control de navegación reactiva libre de mapas (\textit{map-less}) para un robot móvil tipo AGV en entornos discretos de rejilla con obstáculos estáticos utilizando algoritmos de Aprendizaje Profundo por Refuerzo (DRL).
+
+\textbf{Objetivos Específicos:}
+\begin{enumerate}
+    \item Formular matemáticamente el problema de navegación reactiva como un Proceso de Decisión de Markov Parcialmente Observable (POMDP) aplicable a entornos con sensores locales y sin mapa previo \citep{md2024novel}.
+    \item Diseñar un vector de observaciones multimodal que combine lecturas discretizadas de LiDAR en secciones angulares y rumbo relativo a la meta para controlar la explosión dimensional del estado.
+    \item Desarrollar una función de recompensa compuesta que integre penalizaciones continuas de proximidad y un mecanismo heurístico de desatasco mediante reinicios suaves de exploración (\textit{soft reset}).
+    \item Implementar y comparar las arquitecturas de red neuronal de aproximación de valor y política (como DQN y PPO) utilizando frameworks modernos basados en PyTorch.
+    \begin{table}[htbp]
+        \centering
+        \footnotesize
+        \begin{tabular}{ll}
+            \hline
+            \textbf{Acrónimo} & \textbf{Definición} \\
+            \hline
+            AGV & Vehículo de Guiado Automático (Automated Guided Vehicle) \\
+            DRL & Aprendizaje por Refuerzo Profundo (Deep Reinforcement Learning) \\
+            DQN & Red Q Profunda (Deep Q-Network) \\
+            PPO & Optimización de Política Próxima (Proximal Policy Optimization) \\
+            POMDP & Proceso de Decisión de Markov Parcialmente Observable \\
+            \hline
+        \end{tabular}
+    \end{table}
+    \item Validar el rendimiento de la política aprendida en diversos escenarios estáticos simulados de rejilla frente a los enfoques clásicos de Campos Potenciales Artificiales \citep{perez2022navigation}.
+\end{enumerate}
+
+\section{Estructura del documento}\label{sec:estructura_documento}
+La presente memoria de tesis de maestría se estructura de la siguiente manera:
+\begin{itemize}
+    \item El \textbf{Capítulo 1 (Introducción)} contextualiza la motivación, los objetivos específicos y la propuesta del proyecto.
+    \item El \textbf{Capítulo 2 (Estado del Arte)} revisa de manera exhaustiva la literatura científica existente sobre el uso de DRL en robótica móvil, comparando algoritmos de control, percepción multimodal y el aprendizaje curricular.
+    \item El \textbf{Capítulo 3 (Metodología)} detalla formalmente el modelo matemático del POMDP, la cinemática discreta del robot de rejilla, la estructura del LiDAR por sectores angulares, la función de recompensa y las arquitecturas de las redes DQN/PPO aplicadas.
+    \item El \textbf{Capítulo 4 (Configuración Experimental y Análisis de Resultados)} introduce el esqueleto del escenario de evaluación, los hiperparámetros de entrenamiento de las redes y las métricas de rendimiento sugeridas para su futura cumplimentación de datos reales.
+    \item El \textbf{Capítulo 5 (Conclusiones y Trabajo Futuro)} resume los aportes científicos fundamentales y propone líneas de investigación futuras.
+\end{itemize}

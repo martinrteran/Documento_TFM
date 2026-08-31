@@ -1,12 +1,85 @@
 \chapter{Resultados}
 
-\section{Evaluación de Modelos y Comparativa}
 
-\subsection{Resultados de la Aproximación Inicial}
-Antes de evaluar el rendimiento del agente definitivo, se analizó el comportamiento del \texttt{GridAgent} inicial. Los resultados empíricos demostraron que este agente no lograba resolver el problema de navegación de manera robusta. En los experimentos realizados en el \texttt{map\_simple}, el agente tendía a oscilar en mínimos locales o no lograba converger hacia una política óptima dentro del límite de episodios establecido. 
+\section{Configuración de los Escenarios de la Rejilla}
+Los experimentos numéricos y la evaluación de robustez se llevan a cabo sobre tres configuraciones de mapas estáticos cargados dinámicamente desde archivos de configuración serializados JSON \citep{grid_training_09.txt, grid_training_19.txt}:
+\begin{itemize}
+    \item \texttt{map\_obstacle\_free.json}: Escenario libre de obstáculos estáticos para validar la velocidad de convergencia teórica del AGV hacia la meta de navegación \citep{grid_training_09.txt}.
+    \item \texttt{map\_simple.json}: Escenario con un obstáculo geométrico rectangular central de rejilla fija para validar la maniobrabilidad básica de evasión de esquinas \citep{grid_training_09.txt}.
+    \item \texttt{map\_1\_obstacle.json}: Escenario con un obstáculo asimétrico para validar el escape reactivo estocástico implementado \citep{grid_training_19.txt}.
+\end{itemize}
 
-Debido a su incapacidad para generalizar, el \texttt{GridAgent} fue descartado como solución final, pero sirvió como validación de la complejidad del entorno, justificando la inversión computacional en el entrenamiento del modelo PPO.
+\section{Hiperparámetros de Entrenamiento de los Algoritmos}
+El entrenamiento de los agentes DQN y PPO se implementa utilizando los hiperparámetros estandarizados recopilados de tus scripts en el Cuadro~\ref{tab:hiperparametros_entrenamiento} \citep{grid_training_19.txt, networks.txt}.
 
-\subsection{Métricas de Entrenamiento del \texttt{PPOAgent}}
-% Aquí ya sigues con el éxito de PPO, las gráficas de recompensa, etc.
-A diferencia de la aproximación inicial, el agente basado en PPO logró estabilizar el aprendizaje. En la Figura \ref{fig:reward_curve} se muestra la evolución de la recompensa...∫
+\begin{table}[htbp]
+    \centering
+    \caption{Parámetros de entrenamiento del optimizador Adam y del buffer de experiencia.}
+    \label{tab:hiperparametros_entrenamiento}
+    \begin{tabular}{lll}
+        \hline
+        \textbf{Hiperparámetro} & \textbf{Valor DQN / PPO} & \textbf{Descripción Técnica en el Código} \\
+        \hline
+        Tasa de Aprendizaje ($\alpha_{lr}$) & $10^{-3}$ & Tasa del optimizador Adam de la red de política \citep{grid_training_19.txt} \\
+        Factor de Descuento ($\gamma$) & $0.99$ & Tasa de descuento de ganancias futuras \citep{grid_training_19.txt} \\
+        Tamaño de Lote (\textit{Batch size}) & $64$ & Tamaño de muestra del optimizador estocástico \citep{grid_training_19.txt} \\
+        Pasos de Decaimiento ($\epsilon_{decay}$) & $1,000,000$ & Pasos del decaimiento extendido de exploración $\epsilon$ \citep{grid_training_19.txt} \\
+        Capacidad del Buffer & $100,000$ & Tamaño límite del buffer de replay de transiciones \citep{grid_training_19.txt} \\
+        Norma de Gradiente Máxima & $5.0$ & Límite del recorte del gradiente (\textit{gradient clipping}) \citep{grid_training_19.txt} \\
+        \hline
+    \end{tabular}
+\end{table}
+
+\section{Métricas de Evaluación de Navegación}
+Para la validación objetiva del rendimiento del AGV libre de mapas frente a baselines clásicos, se estructuran las siguientes métricas de evaluación en el Cuadro~\ref{tab:metricas_navegacion_seguridad} y Cuadro~\ref{tab:metricas_computo_energia} \citep{2503.12036v1_IMPORTNAT.pdf}.
+
+\begin{table}[htbp]
+    \centering
+    \caption{Esqueleto comparativo de rendimiento de navegación y tasa de éxito (promedio sobre 200 episodios de evaluación).}
+    \label{tab:metricas_navegacion_seguridad}
+    \begin{tabular}{lccccc}
+        \hline
+        \textbf{Algoritmo / Política} & \textbf{SR (\%)} & \textbf{SRN (\%)} & \textbf{CT (prom.)} & \textbf{SPL (\%)} & \textbf{SNT (\%)} \\
+        \hline
+        Campos Potenciales Clásicos (APF) \citep{Navigation_of_mobile_robots_using_neural_networks_and_genetic_algorithms.pdf} & 0.00 & 0.00 & 0.00 & 0.00 & 0.00 \\
+        Algoritmos Genéticos (AG-MLP) \citep{perez2022navigation} & 0.00 & 0.00 & 0.00 & 0.00 & 0.00 \\
+        DQN (GridAgentNet Básica) & 0.00 & 0.00 & 0.00 & 0.00 & 0.00 \\
+        DQN con Soft Reset (GridAgent\_2\_FIXED) & 0.00 & 0.00 & 0.00 & 0.00 & 0.00 \\
+        PPO Reactivo (Map-less) & 0.00 & 0.00 & 0.00 & 0.00 & 0.00 \\
+        \hline
+    \end{tabular}
+\end{table}
+
+\begin{table}[htbp]
+    \centering
+    \caption{Esqueleto comparativo de consumo energético del AGV y latencia del control reactivo en tiempo real.}
+    \label{tab:metricas_computo_energia}
+    \begin{tabular}{lccc}
+        \hline
+        \textbf{Algoritmo / Política} & \textbf{Pasos por Episodio} & \textbf{Consumo de Energía ($E_{total}$)} & \textbf{Tiempo de Respuesta ($ms$)} \\
+        \hline
+        Campos Potenciales Clásicos (APF) & -- & -- & 0.00 \\
+        Algoritmos Genéticos (AG-MLP) & 0.00 & -- & 0.00 \\
+        DQN (GridAgentNet Básica) & 0.00 & 0.00 & 0.00 \\
+        DQN con Soft Reset (GridAgent\_2\_FIXED) & 0.00 & 0.00 & 0.00 \\
+        PPO Reactivo (Map-less) & 0.00 & 0.00 & 0.00 \\
+        \hline
+    \end{tabular}
+\end{table}
+
+\section{Estructura de las Figuras y Curvas de Aprendizaje}
+Para el futuro vaciado de las curvas e imágenes del simulador de rejilla, se preparan las siguientes maquetaciones de figuras de LaTeX:
+
+\begin{figure}[htbp]
+    \centering
+    \framebox[12cm]{\vbox to 6cm{\vfill \centering [Espacio reservado para las curvas de convergencia de recompensa acumulada vs pasos de entrenamiento de DQN, DQN con Soft Reset y PPO] \vfill}}
+    \caption{Curvas de convergencia del entrenamiento de los agentes DRL en el entorno de rejilla simple estática.}
+    \label{fig:curvas_convergencia_resultados}
+\end{figure}
+
+\begin{figure}[htbp]
+    \centering
+    \framebox[12cm]{\vbox to 6cm{\vfill \centering [Espacio reservado para las trayectorias espaciales 2D sobre la rejilla GridMap mostrando los puntos de colisión del APF y las trayectorias seguras logradas por DRL] \vfill}}
+    \caption{Comparación visual en 2D de las trayectorias resultantes del AGV autónomo reactivo evadiendo obstáculos de rejilla.}
+    \label{fig:trayectorias_espaciales_resultados}
+\end{figure}

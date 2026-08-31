@@ -1,0 +1,69 @@
+\chapter{Introducción}\label{chap:introduccion}
+
+
+
+Este documento presenta el borrador estructurado de la Introducción de la tesis de maestría en Ingeniería de Sistemas y Control. Se abordan la motivación, la propuesta con sus objetivos generales y específicos, así como la estructura organizacional del documento de tesis. La propuesta se fundamenta en la integración de algoritmos de Aprendizaje Profundo por Refuerzo (DRL) para posibilitar la navegación autónoma y segura de Vehículos de Guiado Automático (AGVs) en entornos intralogísticos dinámicos y desconocidos sin la necesidad de mapas globales previos o sistemas de posicionamiento global invasivos.
+
+
+\newpage
+
+\section{Motivación}
+
+En la era de la Industria 4.0, la automatización y la optimización de los flujos de materiales se han convertido en pilares fundamentales para mejorar la eficiencia productiva y reducir los costes operativos en las empresas manufactureras \cite{Hu2020}. Los Vehículos de Guiado Automático (AGVs) han surgido como una de las tecnologías más prometedoras de la intralogística, proporcionando un alto grado de autonomía y flexibilidad en el transporte de componentes dentro de plantas de fabricación flexible y almacenes inteligentes \cite{Hu2020, Ye2023}. Sin embargo, la gestión del guiado físico y la planificación de trayectorias en tiempo real para estos vehículos plantean retos complejos debido a la naturaleza dinámica, concurrida y a menudo incierta de estos entornos de operación industrial \cite{Hu2020, Ye2023, Xue2022}.
+
+Tradicionalmente, los sistemas de navegación para robots móviles han dependido del paradigma clásico de Localización y Mapeo Simultáneos (SLAM) \cite{Xue2022}. Bajo este enfoque, el robot primero construye un mapa detallado de su entorno utilizando sensores como LiDAR o cámaras de profundidad, y posteriormente ejecuta algoritmos de planificación de trayectorias globales y locales (como $A^*$, Dijkstra, RRT o campos potenciales clásicos) \cite{Sivashangaran2023, Xue2022}. Si bien estos métodos tradicionales son robustos en entornos estáticos y estructurados, presentan serias limitaciones cuando se aplican a entornos industriales altamente dinámicos y no estacionarios \cite{Xue2022}:
+\begin{enumerate}
+    \item \textbf{Alto coste de mapeo y actualización}: La construcción y el mantenimiento de un mapa de alta precisión requieren un esfuerzo de ingeniería considerable, tiempo de cómputo elevado y, con frecuencia, intervención humana para la adquisición de datos, lo cual resulta insostenible en entornos donde la disposición de obstáculos e infraestructuras cambia constantemente \cite{Xue2022}.
+    \item \textbf{Falta de adaptabilidad y sensibilidad al ruido}: Los algoritmos de búsqueda gráfica convencionales (como Dijkstra, $A^*$ o $D^*$) son propensos a fallar ante interferencias de ruido en las mediciones de los sensores, requiriendo un modelo analítico preciso del entorno físico \cite{Sivashangaran2023}. Por otro lado, enfoques de muestreo aleatorio (como RRT) sufren de ineficiencias de cálculo en tiempo real y devuelven soluciones subóptimas de alto coste computacional \cite{Sivashangaran2023}.
+    \item \textbf{Problemas de atrapamiento en mínimos locales}: Métodos clásicos de navegación reactiva como los Campos Potenciales Artificiales (APF) son muy eficientes y computacionalmente ligeros, pero sufren del clásico problema matemático de quedar atrapados en mínimos locales, donde las fuerzas atractivas del objetivo se cancelan exactamente con las repulsivas de los obstáculos, impidiendo que el robot alcance la meta \cite{Sivashangaran2023, Perez2018}.
+\end{enumerate}
+
+Para superar estas limitaciones, el Aprendizaje Profundo por Refuerzo (DRL) se ha consolidado como un paradigma disruptivo en la robótica móvil autónoma \cite{Sivashangaran2023, Xue2022}. DRL fusiona la capacidad de representación no lineal de las Redes Neuronales Profundas (DNN) con los procesos de decisión secuenciales del Aprendizaje por Refuerzo (RL) \cite{Sivashangaran2023, Xue2022, Shakya2023}. Esto permite diseñar controladores de navegación reactiva \textit{map-less} (sin mapa previo), donde el robot aprende de forma autónoma a mapear directamente sus observaciones sensoriales crudas y locales (por ejemplo, nubes de puntos LiDAR submuestreadas y la posición relativa de la meta en coordenadas polares) hacia comandos de velocidad continua (velocidad lineal y angular) mediante un proceso de ensayo y error guiado por una señal de recompensa compuesta \cite{Sivashangaran2023, Xue2022, Guo2025}.
+
+Esta tesis de maestría se motiva en la urgente necesidad de diseñar y validar un sistema de navegación autónoma reactiva para AGVs que funcione de extremo a extremo (\textit{end-to-end}), eliminando la costosa fase de mapeo global y garantizando la robustez y generalización del guiado frente a obstáculos no contemplados.
+
+\section{Propuesta y objetivos}
+
+\subsection{Propuesta}
+
+Esta investigación propone el desarrollo de un marco de navegación \textit{map-less} basado en Aprendizaje Profundo por Refuerzo libre de modelo (\textit{model-free DRL}) para un vehículo de guiado automático (AGV) que opere en un entorno desconocido poblado por obstáculos estáticos \cite{Sivashangaran2023, Xue2022, Guo2025}. El núcleo del sistema consiste en entrenar una política de control continuo capaz de procesar de manera multimodal las observaciones perceptivas locales del AGV (mediciones de distancia de sensores LiDAR de rango corto y coordenadas polares del objetivo relativo al chasis del robot) y traducirlas directamente en comandos de velocidad diferencial en tiempo real \cite{Xue2022, Guo2025}.
+
+A diferencia de los enfoques modulares tradicionales que requieren complejos pipelines de odometría, estimación de pose, detección de objetos y planificación jerárquica de rutas, nuestra propuesta apuesta por una arquitectura acoplada en una red neuronal entrenada mediante algoritmos avanzados de gradiente de política actor-crítico como \textit{Soft Actor-Critic} (SAC) o \textit{Twin Delayed Deep Deterministic Policy Gradient} (TD3) \cite{Sivashangaran2023, Xue2022, Guo2025}. Para contrarrestar la lentitud inherente del entrenamiento y la dispersión de las recompensas (\textit{sparse reward problem}) al aproximarse al destino, se incorpora una estrategia de Aprendizaje por Currículo Automático basada en \textit{NavACL-Q} y funciones de recompensa compuestas que integran incentivos de potencial de distancia y orientación geométrica para acelerar significativamente la convergencia \cite{Xue2022, Guo2025}.
+
+\subsection{Objetivo General}
+
+Diseñar, implementar y evaluar un sistema de navegación reactiva sin mapas previos (\textit{map-less}) para un vehículo de guiado automático (AGV) utilizando algoritmos de Aprendizaje Profundo por Refuerzo, garantizando el desplazamiento seguro y óptimo entre un punto inicial y un punto final en un entorno con presencia de obstáculos estáticos desconocidos.
+
+\subsection{Objetivos Específicos}
+
+\begin{enumerate}
+    \item Formular matemáticamente el problema de navegación reactiva del AGV bajo el formalismo de un Proceso de Decisión de Markov Parcialmente Observable (POMDP), definiendo un espacio de observaciones locales multimodal ligero y eficiente \cite{Xue2022, Guo2025}.
+    \item Implementar e integrar algoritmos de control continuo de tipo Actor-Crítico (específicamente Soft Actor-Critic (SAC) y Twin Delayed DDPG (TD3)) para optimizar la toma de decisiones dinámicas del AGV \cite{Sivashangaran2023, Xue2022}.
+    \item Diseñar y optimizar una función de recompensa compuesta y asimétrica que combine incentivos densos basados en la distancia euclidiana/rumbo relativo y penalizaciones discretas (colisión, tiempo agotado), asegurando la suavidad en las trayectorias del vehículo \cite{Guo2025, Ye2023}.
+    \item Desarrollar un mecanismo de Aprendizaje por Currículo Automático (\textit{Automatic Curriculum Learning}) para proponer dinámicamente tareas de navegación con dificultad progresiva, mitigando el problema de la recompensa dispersa y reduciendo la complejidad muestral del entrenamiento \cite{Xue2022}.
+    \item Validar de manera exhaustiva el rendimiento, la generalización y la robustez del sistema de navegación propuesto en entornos simulados de alta fidelidad física (como Gazebo o NVIDIA Isaac Sim) \cite{Sivashangaran2023, Xue2022, Guo2025}, evaluando métricas clave como la tasa de éxito de navegación, tiempo medio de episodio, tasa de colisión y robustez frente a diferentes orientaciones iniciales del AGV.
+\end{enumerate}
+
+\section{Estructura del documento}
+
+El presente documento de tesis de maestría se encuentra estructurado en cinco capítulos organizados de la siguiente forma:
+
+\begin{itemize}
+    \item \textbf{Capítulo 1: Introducción}: En este capítulo se establece el contexto general de la investigación. Se presenta la motivación técnica, destacando las limitaciones de los métodos tradicionales frente al paradigma del aprendizaje por refuerzo. Se formulan los objetivos generales y específicos que guían el estudio y se detalla la estructura organizativa de la tesis.
+    \item \textbf{Capítulo 2: Estado del Arte}: Se presenta una revisión crítica de la literatura científica referente a la navegación autónoma de AGVs. Se realiza un análisis comparativo entre la planificación de rutas clásica (algoritmos basados en grafos, muestreo y campos potenciales artificiales) y las metodologías basadas en Inteligencia Artificial \cite{Sivashangaran2023, Perez2018}. Asimismo, se examinan los algoritmos DRL líderes libres de modelo para control continuo (DDPG, TD3, SAC), las arquitecturas de fusión sensorial multimodal, y el rol del aprendizaje por currículo y el aprendizaje por refuerzo seguro en la optimización del entrenamiento de robots móviles \cite{Xue2022, Guo2025}.
+    \item \textbf{Capítulo 3: Metodología}: Se expone detalladamente la formulación teórica del sistema propuesto. Se modela la navegación como un POMDP \cite{Xue2022, Ge2024}, seguido por la descripción matemática de la cinemática diferencial del AGV y la especificación de los espacios de observaciones y acciones continuas \cite{Guo2025}. Se detalla la formulación analítica de la función de recompensa compuesta y el funcionamiento de los algoritmos SAC y TD3 adaptados para este caso de estudio \cite{Sivashangaran2023, Xue2022, Guo2025}.
+    \item \textbf{Capítulo 4: Configuración Experimental e Implementación}: Se describe el entorno de simulación física de alta fidelidad utilizado para el entrenamiento y la validación de la política de navegación \cite{Sivashangaran2023, Xue2022}. Se detallan los hiperparámetros del modelo, los perfiles de sensorización (LiDAR de 40 intervalos y odometría local) \cite{Guo2025}, los mapas de entrenamiento y las configuraciones de los escenarios de prueba para evaluar la generalización de la política.
+    \item \textbf{Capítulo 5: Resultados y Discusión}: Se presentan y discuten de forma cuantitativa y cualitativa los resultados obtenidos en las simulaciones experimentales. Se analizan de forma detallada las curvas de aprendizaje y se comparan las políticas resultantes (SAC frente a TD3, con y sin currículo NavACL-Q) \cite{Xue2022, Guo2025}. Adicionalmente, se presenta el análisis de los experimentos de generalización en entornos con topologías desconocidas y obstáculos densos, evaluando su viabilidad práctica.
+    \item \textbf{Capítulo 6: Conclusiones y Trabajo Futuro}: Se sintetizan los principales hallazgos y aportes de la tesis con respecto al cumplimiento de los objetivos planteados. Finalmente, se identifican las limitaciones actuales del sistema y se sugieren líneas de investigación futuras, tales como la transferencia de simulación a realidad (\textit{sim-to-real}) en hardware físico y la incorporación de restricciones de seguridad en tiempo real \cite{Sivashangaran2023, Xue2022}.
+\end{itemize}
+
+\begin{thebibliography}{99}
+    \bibitem{Hu2020} Hu, H., Jia, X., He, Q., Fu, S., \& Liu, K. (2020). Deep reinforcement learning based AGVs real-time scheduling with mixed rule for flexible shop floor in industry 4.0. \textit{Computers \& Industrial Engineering}, 149, 106749.
+    \bibitem{Ye2023} Ye, X., Deng, Z., Shi, Y., \& Shen, W. (2023). Toward Energy-Efficient Routing of Multiple AGVs with Multi-Agent Reinforcement Learning. \textit{Sensors}, 23(12), 5615.
+    \bibitem{Xue2022} Xue, H., Hein, B., Bakr, M., Schildbach, G., Abel, B., \& Rueckert, E. (2022). Using Deep Reinforcement Learning with Automatic Curriculum Learning for Mapless Navigation in Intralogistics. \textit{Applied Sciences}, 12(6), 3153.
+    \bibitem{Sivashangaran2023} Sivashangaran, S., \& Eskandarian, A. (2023). Deep Reinforcement Learning for Autonomous Ground Vehicle Exploration Without A-Priori Maps. \textit{Advances in Artificial Intelligence and Machine Learning}, 3(2), 1198-1219.
+    \bibitem{Perez2018} Pérez, D. A., Al-Hadithi, B. M., \& Martín, V. C. (2018). Navigation of mobile robots using neural networks and genetic algorithms. \textit{IEEE Latin America Transactions}, 16, 8506.
+    \bibitem{Guo2025} Guo, D., Zhu, Y., \& Lu, K. (2025). Map-less Navigation Algorithm for Autonomous Vehicles Based on Deep Reinforcement Learning. \textit{Advances in Computer, Signals and Systems}, 9(1), 123-130.
+    \bibitem{Ge2024} Ge, L., Zhou, X., Li, Y., \& Wang, Y. (2024). Deep reinforcement learning navigation via decision transformer in autonomous driving. \textit{Frontiers in Neurorobotics}, 18, 1338189.
+    \bibitem{Shakya2023} Shakya, A. K., Pillai, G., \& Chakrabarty, S. (2023). Reinforcement learning algorithms: A brief survey. \textit{Expert Systems With Applications}, 231, 120495.
+\end{thebibliography}

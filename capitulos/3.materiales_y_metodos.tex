@@ -1,19 +1,172 @@
 \chapter{Materiales y métodos}
 
-\subsection{Evolución de la Arquitectura de Control}
 
-El desarrollo de la política de control para el robot se llevó a cabo de manera iterativa, comenzando con un enfoque más simple que permitió identificar los retos del entorno de simulación, para finalmente adoptar una solución basada en algoritmos del estado del arte.
+\section{Formulación del Problema como POMDP}
+Dado que el AGV no tiene acceso global al plano de los obstáculos estáticos de la rejilla, el proceso se modela rigurosamente como un Proceso de Decisión de Markov Parcialmente Observable (POMDP), definido por la tupla matemática $\langle S, A, T, R, \Omega, O, \gamma \rangle$ \citep{md2024novel}, donde:
+\begin{itemize}
+    \item $S$ es el espacio de estados del sistema que incluye la pose real absoluta del AGV y la configuración de los obstáculos de la rejilla.
+    \item $A$ es el espacio discreto de acciones ejecutables por el robot de guiado automático.
+    \item $T(s_{t+1}|s_t, a_t)$ es la función estocástica de transición de estados de la rejilla.
+    \item $R(s_t, a_t)$ es la recompensa asimétrica compuesta que guía y penaliza al agente.
+    \item $\Omega$ representa el espacio de observaciones locales perceptuales del robot.
+    \item $O(o_t | s_t, a_{t-1})$ denota la función de distribución probabilística de la observación sensorial local.
+    \item $\gamma \in [0, 1)$ es el factor de descuento temporal que pondera la ganancia futura.
+\end{itemize}
+Ante la falta de observabilidad completa del estado geométrico $s_t$, el agente estima inductivamente un estado de creencia o vector de confianza $b_t(s) \in \mathcal{B}$ sobre la distribución del estado real mediante actualización recursiva bayesiana \citep{md2024novel}:
+\begin{equation}
+    b_{t+1}(s') = \eta \, O(o_{t+1} | s', a_t) \sum_{s \in S} T(s'|s, a_t) b_t(s)
+\end{equation}
+donde $\eta$ es una constante normalizadora de probabilidad \citep{md2024novel}.
 
-\subsubsection{Aproximación Inicial: \texttt{GridAgent}}
-En las primeras fases del desarrollo, se implementó un agente base denominado \texttt{GridAgent}. Este agente se diseñó como una primera aproximación al problema de navegación discreta. 
+\section{Modelo Cinemático del AGV sobre Rejilla}
+El robot implementado (\texttt{GridRobot} y \texttt{GridRobotNotTurning}) se desplaza sobre una cuadrícula regular discreta con celdas discretizadas en diferencias de paso \citep{robot.txt}. El modelo cinemático del movimiento traslacional y rotacional se define en pasos de tiempo discretos discretizados mediante \citep{robot.txt}:
+\begin{equation}
+    x_{t+1} = x_t + v_t \cos(\theta_t) \Delta t
+\end{equation}
+\begin{equation}
+    y_{t+1} = y_t + v_t \sin(\theta_t) \Delta t
+\end{equation}
+\begin{equation}
+    \theta_{t+1} = \theta_t + \omega_t \Delta t
+\end{equation}
+Sujeto a las restricciones cinemáticas de guiado no holonómico de rodamiento puro sin deslizamiento lateral del AGV real \citep{DRL_AGV_Exploration.pdf}.
 
-% Aquí explicas brevemente qué hacía el GridAgent (ej. si era Q-Learning tabular, heurística, etc.)
-El objetivo de esta implementación era establecer una línea base (\textit{baseline}) de rendimiento. Sin embargo, durante las fases de prueba iniciales, se observó que este enfoque presentaba severas limitaciones. Principalmente, el agente era incapaz de generalizar a situaciones no vistas y sufría de problemas de convergencia a medida que aumentaba la complejidad del mapa y el espacio de estados. 
+\section{Espacio de Observaciones Perceptuales Locales}
+La observación local en cada paso temporal $o_t \in \mathbb{R}^{D_{obs}}$ se compone de un vector multimodal ligero que minimiza el consumo de memoria computacional del agente \citep{grid_training_19.txt}:
+\begin{equation}
+    o_t = \left[ \mathbf{r}_{Lidar}, d_{goal}, \theta_{goal}, v_{t-1}, \omega_{t-1} \right]
+\end{equation}
+donde:
+\begin{itemize}
+    \item $\mathbf{r}_{Lidar} \in \mathbb{R}^{N_{sec}}$ representa el vector de lecturas filtradas por la clase \texttt{GridLidar} \citep{sensor.txt}. Los $360^\circ$ de rango del robot se dividen en $N_{sec} = 8$ sectores angulares regulares de $45^\circ$ cada uno \citep{grid_training_19.txt}. Para cada sector, se calcula la lectura mínima de rango entre el haz de rayos muestreados ($N_{rays} = 120$ en total), capturando de forma reactiva la distancia crítica al obstáculo más cercano por sector angular \citep{grid_training_19.txt, sensor.txt}:
+    \begin{equation}
+        r_{Lidar}^{(k)} = \min_{\phi \in \text{Sector}_k} \left\{ d_{ray}(\phi) \right\}, \quad k = 1, \dots, N_{sec}
+    \end{equation}
+    \item $d_{goal}$ es la distancia cartesiana euclídea normalizada relativa a la meta de navegación \citep{xue2022using}.
+    \item $\theta_{goal}$ es el rumbo angular relativo del robot respecto al objetivo \citep{xue2022using}.
+    \item $v_{t-1}, \omega_{t-1}$ son las velocidades lineal y angular previas para conservar continuidad cinemática interna \citep{Navigation_of_mobile_robots_using_neural_networks_and_genetic_algorithms.pdf}.
+\end{itemize}
 
-El fracaso de esta aproximación inicial evidenció la necesidad de utilizar una arquitectura que pudiera extraer características complejas de las observaciones espaciales y estabilizar el aprendizaje, motivando la transición hacia métodos de Aprendizaje por Refuerzo Profundo continuo.
+\section{Espacio de Acciones Discreto}
+De acuerdo con el desarrollo lógico del software en el script \texttt{agent.txt}, el espacio de acciones se discretiza en tres decisiones de control de baja latencia para la navegación sobre la cuadrícula \citep{agent.txt}:
+\begin{itemize}
+    \item \textbf{Acción 0 (Avanzar):} Comando para avanzar en línea recta a velocidad constante ($v = 1.0$\,celda/paso, $\omega = 0.0$\,rad/s).
+    \item \textbf{Acción 1 (Girar Izquierda):} Comando de rotación pura a la izquierda ($v = 0.0$, $\omega = +\pi/2$\,rad/s).
+    \item \textbf{Acción 2 (Girar Derecha):} Comando de rotación pura a la derecha ($v = 0.0$, $\omega = -\pi/2$\,rad/s).
+\end{itemize}
 
-\subsubsection{Transición a PPO (\texttt{PPOAgent})}
-Para superar las limitaciones del \texttt{GridAgent}, se sustituyó el núcleo del controlador por el algoritmo \textit{Proximal Policy Optimization} (PPO). Como se ha detallado anteriormente, PPO aborda los problemas de inestabilidad limitando el tamaño de las actualizaciones de la política.
+\section{Función de Recompensa Compuesta}
+La recompensa asimétrica compuesta $R(s_t, a_t)$ asocia incentivos dispersos de finalización y penalizaciones estocásticas continuas de seguridad para evitar colisiones \citep{grid_training_19.txt}:
+\begin{equation}
+    R(s_t, a_t) = R_{terminal} + \mathcal{R}_{progreso} - R_{time} - \mathcal{P}_{proximidad}
+\end{equation}
+donde:
+\begin{itemize}
+    \item $R_{terminal}$ es la recompensa estocástica de estados de parada terminales:
+    \begin{equation}
+        R_{terminal} = \begin{cases}
+            +100.0, & \text{si AGV alcanza meta (éxito)} \\
+            -100.0, & \text{si colisiona con obstáculo} \\
+            -100.0, & \text{si excede límite temporal de pasos } T_{max}
+        \end{cases}
+    \end{equation}
+    \item $\mathcal{R}_{progreso} = w_d \cdot (d_{t-1} - d_t)$ premia la aproximación radial real hacia la meta de destino.
+    \item $R_{time} = 0.1$ es una penalización constante por paso de tiempo para forzar al AGV a tomar rutas directas y cortas \citep{article_1743243135.pdf}.
+    \item $\mathcal{P}_{proximidad}$ es la penalización de seguridad activa si el AGV entra dentro de la zona crítica definida por el radio de seguridad de la rejilla ($\mathcal{D}_{safety} = d_{max} \cdot \frac{2}{3}$) \citep{grid_training_19.txt}:
+    \begin{equation}
+        \mathcal{P}_{proximidad} = \begin{cases}
+            \mathcal{P}_{max} \cdot \left(1.0 - \frac{d_{min}}{\mathcal{D}_{safety}}\right), & \text{si } d_{min} < \mathcal{D}_{safety} \\
+            0.0, & \text{en otro caso}
+        \end{cases}
+    \end{equation}
+    siguiendo los hiperparámetros del código real de entrenamiento, fijando la penalización máxima en $\mathcal{P}_{max} = 10^{-2}$ ($0.01$) \citep{grid_training_19.txt}.
+\end{itemize}
 
-Toda la lógica de este agente definitivo se encuentra encapsulada en la clase \texttt{PPOAgent}, dentro del módulo \texttt{agent.py}. % Y aquí continuaría el texto que te pasé en el mensaje anterior sobre PPO...
+\section{Mecanismo de Reinicio Suave (Soft Reset)}
+Para prevenir los frecuentes atrapamientos y estancamientos de la política en zonas de pasillos estrechos o esquinas estáticas (mínimos locales de la rejilla), se define el manejador de interrupciones \textbf{\texttt{InterruptHandler}} \citep{TrainingManager.txt}. El sistema monitorea continuamente una cola de doble extremo (\texttt{deque}) de tamaño fijo de las últimas acciones y recompensas acumuladas \citep{TrainingManager.txt}. La condición de atasco se determina heurísticamente mediante la función \texttt{is\_stuck}:
+\begin{equation}
+    \text{is\_stuck} = \text{std}(\mathbf{x}_{last\_30}) < \epsilon_{threshold} \quad \wedge \quad a_t \in \{1, 2\}
+\end{equation}
+Si el robot se encuentra oscilando o atascado, el manejador ejecuta de manera reactiva un reinicio suave del escenario de exploración (\textbf{\texttt{do\_soft\_reset}}) \citep{TrainingManager.txt}. Este algoritmo purga el buffer de memoria temporal del replay e incrementa temporalmente el factor de exploración estocástica $\epsilon$ del agente a un valor alto ($\epsilon \leftarrow 0.8$) para forzar al AGV a escapar del obstáculo de la rejilla de forma reactiva sin interrumpir drásticamente la continuidad del proceso de aprendizaje \citep{grid_training_19.txt, TrainingManager.txt}.
 
+\section{Arquitecturas de Redes Neuronales DQN y PPO}
+Las aproximaciones de valor y políticas del actor-crítico se estiman mediante perceptrones multicapa totalmente conectados (MLP) cuyas capas y dimensiones se detallan en el Cuadro~\ref{tab:arquitectura_redes_detallada} y se visualizan estructuralmente en la Figura~\ref{fig:tikz_mlp_arquitectura} \citep{networks.txt}.
+
+\begin{table}[htbp]
+    \centering
+    \caption{Parámetros y dimensiones estructurales de las redes neuronales DQN y PPO implementadas.}
+    \label{tab:arquitectura_redes_detallada}
+    \begin{tabular}{llcll}
+        \hline
+        \textbf{Red Neuronal} & \textbf{Capa / Tipo} & \textbf{Dimensión (Nodos)} & \textbf{Activación} & \textbf{Parámetro del Código} \\
+        \hline
+        \textbf{SimpleQNetwork} & Entrada & $D_{obs} = 12$ & Ninguna & Observaciones del sensor \citep{networks.txt} \\
+        (Agente DQN)            & Oculta 1 (Linear) & $253$ & ReLU & Extracción de características \\
+        & Oculta 2 (Linear) & $56$ & ReLU & Homogeneización dimensional \\
+        & Salida (Linear) & $3$ & Ninguna & Valores Q de acciones discretas \citep{networks.txt} \\
+        \hline
+        \textbf{ValueNetwork}   & Entrada & $D_{obs} = 12$ & Ninguna & Vector de estado perceptual \citep{networks.txt} \\
+        (Crítico PPO)           & Oculta 1 (Linear) & $H = 64$ & ReLU & Dimensión oculta del crítico \citep{grid_training_19.txt} \\
+        & Oculta 2 (Linear) & $64$ & ReLU & Representación de valor \\
+        & Salida (Linear) & $1$ & Ninguna & Estimación de valor $V(s)$ \citep{networks.txt} \\
+        \hline
+    \end{tabular}
+\end{table}
+
+\begin{figure}[htbp]
+    \centering
+%    \begin{tikzpicture}[
+%        init/.style={circle, draw=blue!50, fill=blue!10, thick, minimum size=6mm},
+%        hidden1/.style={circle, draw=orange!50, fill=orange!10, thick, minimum size=6mm},
+%        hidden2/.style={circle, draw=green!50, fill=green!10, thick, minimum size=6mm},
+%        out/.style={circle, draw=red!50, fill=red!10, thick, minimum size=6mm},
+%        arrow/.style={->, >=stealth, semithick, black!60}
+%        ]
+%
+%        % Capa de Entrada
+%        \node[init] (x1) at (0, 2) {$o_{Lid}$};
+%        \node[init] (x2) at (0, 1) {$d_{gl}$};
+%        \node at (0, 0.1) {$\vdots$};
+%        \node[init] (xd) at (0, -1) {$\theta_{gl}$};
+%
+%        % Capa Oculta 1
+%        \node[hidden1] (h1\_1) at (2.5, 2.5) {$h^{(1)}_1$};
+%        \node[hidden1] (h1\_2) at (2.5, 1.5) {$h^{(1)}_2$};
+%        \node at (2.5, 0.4) {$\vdots$};
+%        \node[hidden1] (h1\_n) at (2.5, -0.5) {$h^{(1)}_M$};
+%
+%        % Capa Oculta 2
+%        \node[hidden2] (h2\_1) at (5, 2) {$h^{(2)}_1$};
+%        \node at (5, 0.9) {$\vdots$};
+%        \node[hidden2] (h2\_n) at (5, -0.1) {$h^{(2)}_K$};
+%
+%        % Capa de Salida
+%        \node[out] (y1) at (7.5, 1.5) {$Q_0$};
+%        \node[out] (y2) at (7.5, 0.5) {$Q_1$};
+%        \node[out] (y3) at (7.5, -0.5) {$Q_2$};
+%
+%        % Conexiones Capa Entrada -> Capa Oculta 1
+%        \foreach \i in {x1, x2, xd}
+%        \foreach \j in {h1_1, h1_2, h1_n}
+%        \draw[arrow] (\i) -- (\j);
+%
+%        % Conexiones Capa Oculta 1 -> Capa Oculta 2
+%        \foreach \i in {h1_1, h1_2, h1_n}
+%        \foreach \j in {h2_1, h2_n}
+%        \draw[arrow] (\i) -- (\j);
+%
+%        % Conexiones Capa Oculta 2 -> Capa de Salida
+%        \foreach \i in {h2_1, h2_n}
+%        \foreach \j in {y1, y2, y3}
+%        \draw[arrow] (\i) -- (\j);
+%
+%        % Etiquetas de Capas
+%        \node[above=0.3cm of x1] {\textbf{Entrada ($D_{obs}$)}};
+%        \node[above=0.3cm of h1_1] {\textbf{Oculta 1 (Linear)}};
+%        \node[above=0.3cm of h2_1] {\textbf{Oculta 2 (Linear)}};
+%        \node[above=0.3cm of y1] {\textbf{Salida ($Q(s,a)$)}};
+%
+%    \end{tikzpicture}
+    \caption{Diagrama visual de conexiones de la arquitectura de la red SimpleQNetwork de control de avance y giro del AGV.}
+    \label{fig:tikz_mlp_arquitectura}
+\end{figure}

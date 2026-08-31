@@ -1,0 +1,12 @@
+\chapter{Resultados}
+
+\section{Evaluación de Modelos y Comparativa}
+
+\subsection{Resultados de la Aproximación Inicial}
+Antes de evaluar el rendimiento del agente definitivo, se analizó el comportamiento del \texttt{GridAgent} inicial. Los resultados empíricos demostraron que este agente no lograba resolver el problema de navegación de manera robusta. En los experimentos realizados en el \texttt{map\_simple}, el agente tendía a oscilar en mínimos locales o no lograba converger hacia una política óptima dentro del límite de episodios establecido.
+
+Debido a su incapacidad para generalizar, el \texttt{GridAgent} fue descartado como solución final, pero sirvió como validación de la complejidad del entorno, justificando la inversión computacional en el entrenamiento del modelo PPO.
+
+\subsection{Métricas de Entrenamiento del \texttt{PPOAgent}}
+% Aquí ya sigues con el éxito de PPO, las gráficas de recompensa, etc.
+A diferencia de la aproximación inicial, el agente basado en PPO logró estabilizar el aprendizaje. En la Figura \ref{fig:reward_curve} se muestra la evolución de la recompensa...

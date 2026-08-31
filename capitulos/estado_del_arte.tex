@@ -1,0 +1,95 @@
+\chapter{Estado del Arte}
+
+
+La navegaci\'{o}n sin mapas previos basada en aprendizaje por refuerzo ha experimentado avances sustanciales en los \'{u}ltimos a\~{n}os. Esta secci\'{o}n revisa las contribuciones de la literatura cient\'{\i}fica agrupadas en las tem\'{a}ticas clave de la investigaci\'{o}n.
+
+\subsection{Limitaciones de los M\'{e}todos Tradicionales frente al DRL}
+
+Los enfoques de navegaci\'{o}n tradicionales han ido evolucionando de modelos puramente matem\'{a}ticos (\'{a}lgebra lineal, descenso de gradiente) hacia t\'{e}cnicas de inteligencia artificial como redes neuronales y algoritmos gen\'{e}ticos \cite{AbadPerez2024}. Aunque la combinaci\'{o}n de redes neuronales con algoritmos gen\'{e}ticos permite optimizar los pesos para guiar al robot evitando obst\'{a}culos, su capacidad de b\'{u}squeda local y convergencia en mapas de alta complejidad sigue siendo limitada en comparaci\'{o}n con las t\'{e}cnicas modernas de DRL \cite{AbadPerez2024}.
+
+En la navegaci\'{o}n cl\'{a}sica por excelencia, como la basada en campos potenciales (APF), el robot se desplaza siguiendo la fuerza resultante de un campo atractivo generado por la meta y campos repulsivos generados por los obst\'{a}culos \cite{AbadPerez2024}. Sin embargo, en mapas complejos con m\'{u}ltiples obst\'{a}culos o canales estrechos, la interferencia de los campos repulsivos genera de forma inevitable m\'{\i}nimos locales, zonas d\'{o}nde el potencial resultante se anula antes de llegar al objetivo, provocando que el robot quede atrapado \cite{AbadPerez2024}. En contraposici\'{o}n, las pol\'{\i}ticas obtenidas mediante DRL, al ser capaces de aprender relaciones altamente no lineales mediante interacciones iterativas de prueba y error, demuestran una mayor robustez y \'{e}xito al evadir estos m\'{\i}nimos locales en mapas desafiantes \cite{AbadPerez2024}.
+
+\subsection{Algoritmos Libres de Modelo (Model-Free) en Navegaci\'{o}n}
+
+Los algoritmos libres de modelo se prefieren en rob\'{o}tica debido a que no exigen calcular las complejas ecuaciones f\'{\i}sicas de transici\'{o}n del entorno, las cuales suelen ser computacionalmente exigentes o dif\'{\i}ciles de modelar \cite{Xue2022}. Dentro de esta categor\'{\i}a, los algoritmos se dividen b\'{a}sicamente en basados en pol\'{\i}ticas estables del lado del actor y del cr\'{\i}tico:
+
+\begin{itemize}
+    \item \textbf{Algoritmos Basados en Pol\'{\i}ticas On-Policy:} M\'{e}todos como \textit{Trust Region Policy Optimization} (TRPO) y \textit{Proximal Policy Optimization} (PPO) ofrecen una alta estabilidad en el gradiente de la pol\'{\i}tica, pero sufren de una baja eficiencia en el uso de muestras (\textit{sample inefficiency}), requiriendo generar nuevas muestras para cada actualizaci\'{o}n, lo que encarece de sobremanera el tiempo de entrenamiento f\'{\i}sico o de simulaci\'{o}n \cite{Sivashangaran2023}.
+    \item \textbf{Algoritmos Basados en Pol\'{\i}ticas Off-Policy:} Algoritmos como \textit{Deep Deterministic Policy Gradient} (DDPG), \textit{Twin Delayed Deep Deterministic Policy Gradient} (TD3) y \textit{Soft Actor-Critic} (SAC) reutilizan experiencias pasadas almacenadas en una memoria de repetici\'{o}n (\textit{experience replay buffer}), mejorando significativamente la eficiencia de muestreo \cite{Sivashangaran2023, Xue2022}. Espec\'{\i}ficamente, SAC destaca en tareas de navegaci\'{o}n de AGVs dado que opera bajo el principio de maximizaci\'{o}n de la entrop\'{\i}a, lo que promueve una exploraci\'{o}n m\'{a}s eficiente y evita la convergencia prematura a pol\'{\i}ticas sub\'{o}ptimas \cite{Xue2022}. Por su parte, variantes mejoradas de TD3 con funciones de recompensa compuestas y optimizaciones en la estructura de red han demostrado alcanzar altas tasas de \'{e}xito de navegaci\'{o}n reduciendo sustancialmente el tiempo de entrenamiento \cite{Guo2025}.
+\end{itemize}
+
+\subsection{Procesamiento Sensorial Multimodal y Observabilidad Parcial}
+
+Para lograr una navegaci\'{o}n exitosa en escenarios desconocidos, el AGV debe codificar de forma compacta el estado de su entorno. Esto se logra mediante el procesamiento multimodal de sensores, los cuales com\'{u}nmente asocian:
+\begin{enumerate}
+    \item \textbf{Sensores de rango (LiDAR):} Permiten medir distancias hacia obst\'{a}culos para la evitaci\'{o}n de colisiones. Frecuentemente, los datos del l\'{\i}dar se procesan mediante t\'{e}cnicas de submuestreo o se transforman en mapas de obst\'{a}culos locales (LOMaps) para reducir su dimensionalidad sin perder informaci\'{o}n cr\'{\i}tica de la escena \cite{Gao2025}.
+    \item \textbf{Sensores visuales (C\'{a}maras frontales):} Aportan una rica informaci\'{o}n sem\'{a}ntica sobre el objetivo y los obst\'{a}culos circundantes \cite{Xue2022}. Para que el procesamiento de estas im\'{a}genes de alta dimensi\'{o}n no sobrecargue los recursos de hardware, se emplean t\'{e}cnicas de reducci\'{o}n de dimensionalidad como los Autoencoders Variacionales (VAE) o bloques ResNet para extraer vectores de variables latentes compactos que preservan las caracter\'{\i}sticas visuales clave de la escena \cite{Xue2022, Ge2024}.
+\end{enumerate}
+
+No obstante, los AGVs reales operan bajo condiciones de observabilidad parcial, lo que formalmente se define como un Proceso de Decisi\'{o}n de Markov Parcialmente Observable (POMDP) \cite{Gao2025, Ge2024}. Debido a oclusiones f\'{\i}sicas del entorno o ruidos intr\'{\i}nsecos de los sensores, la observaci\'{o}n instant\'{o}nea en un paso de tiempo $t$ puede no revelar el verdadero estado del sistema (un fenómeno conocido como \textit{perceptual aliasing}) \cite{RLOverview}. Para mitigar esto, se ha extendido el uso de redes con memoria temporal, tales como las Redes Neuronales Recurrentes (LSTM/GRU) o, m\'{a}s recientemente, arquitecturas basadas en auto-atenci\'{o}n como el \textit{Decision Transformer} (DRLNDT) \cite{Ge2024}. Al modelar la dependencia temporal de las \'{u}ltimas observaciones y acciones pasadas ($h_t$), estas arquitecturas permiten al agente deducir el estado latente verdadero y evitar errores de decisi\'{o}n catastr\'{o}ficos provocados por p\'{e}rdidas moment\'{a}neas de l\'{\i}nea de visi\'{o}n del objetivo \cite{Ge2024}.
+
+\subsection{Aprendizaje Jera\'{a}rquico, Seguro y por Curr\'{\i}culo}
+
+Un problema recurrente en el entrenamiento de pol\'{\i}ticas de navegaci\'{o}n de largo alcance es la escasez de recompensas positivas (\textit{sparse reward problem}) \cite{Xue2022}. Cuando la meta es peque\~{n}a (como la zona debajo de un contenedor o un punto espec\'{\i}fico en un mapa amplio), la probabilidad de que el AGV la alcance mediante exploraci\'{o}n puramente aleatoria es marginal, imposibilitando el aprendizaje de la pol\'{\i}tica \cite{Xue2022}. Para resolver esta problem\'{a}tica, la literatura ha adoptado tres enfoques principales:
+
+\begin{itemize}
+    \item \textbf{Aprendizaje por Curr\'{\i}culo (Curriculum Learning):} Propone una secuencia de tareas intermedias que inician desde estados muy f\'{a}ciles (cercanos a la meta) y aumentan su complejidad geom\'{e}trica a medida que el agente demuestra dominio de la pol\'{\i}tica \cite{Xue2022}. M\'{e}todos como \textit{NavACL-Q} combinan el aprendizaje de la pol\'{\i}tica con una red auxiliar que predice la probabilidad de \'{e}xito de la navegaci\'{o}n seg\'{u}n propiedades geom\'{e}tricas clave (como la distancia robot-meta, la holgura de obst\'{a}culos y el valor $Q$ inicial), lo que permite proponer autom\'{a}ticamente tareas con la dificultad justa para optimizar la curva de aprendizaje del AGV \cite{Xue2022}.
+    \item \textbf{Aprendizaje por Refuerzo Jer\'{a}rquico (HRL):} Divide el problema global de larga duraci\'{o}n en una jerarqu\'{\i}a de sub-tareas \cite{Shakya2023}. Una pol\'{\i}tica de alto nivel genera de manera secuencial subobjetivos locales dentro del rango de alcance de los sensores del AGV, mientras que una pol\'{\i}tica de bajo nivel calcula las acciones de control en tiempo real para alcanzar secuencialmente dichos subobjetivos evadiendo obst\'{a}culos din\'{a}micos y est\'{a}ticos \cite{Gao2025}.
+    \item \textbf{Aprendizaje por Refuerzo Seguro (Safe RL):} Busca garantizar que la exploraci\'{o}n del robot ocurra en un espacio libre de colisiones. En lugar de depender de penalizaciones arbitrarias de colisi\'{o}n en la funci\'{o}n de recompensa (lo que puede dar lugar a un comportamiento excesivamente conservador del AGV), enfoques como \textit{Constrained Policy Optimization} (CPO) incorporan l\'{\i}mites matem\'{a}ticos r\'{\i}gidos a la probabilidad de colisi\'{o}n, balanceando la b\'{u}squeda del objetivo con la preservaci\'{o}n de la integridad f\'{\i}sica del robot \cite{Gao2025}.
+\end{itemize}
+
+
+\newpage
+\begin{thebibliography}{10}
+
+    \bibitem{Hu2020}
+    H.~Hu, X.~Yang, S.~Xiao, y F.~Wang.
+    \newblock Anti-conflict AGV path planning in automated container terminals based on multi-agent reinforcement learning.
+    \newblock {\em International Journal of Production Research}, 61:65--80, 2023.
+
+    \bibitem{Sivashangaran2023}
+    S.~Sivashangaran y A.~Eskandarian.
+    \newblock Deep reinforcement learning for autonomous ground vehicle exploration without a-priori maps.
+    \newblock {\em Advances in Artificial Intelligence and Machine Learning}, 3(2):1198--1219, 2023.
+
+    \bibitem{Xue2022}
+    H.~Xue, B.~Hein, M.~Bakr, G.~Schildbach, B.~Abel, y E.~Rueckert.
+    \newblock Using Deep Reinforcement Learning with Automatic Curriculum Learning for Mapless Navigation in Intralogistics.
+    \newblock {\em Applied Sciences}, 12:3153, 2022.
+
+    \bibitem{DRLSurvey2025}
+    Survey DRL FM Integration.
+    \newblock Deep reinforcement learning and large foundation models survey.
+    \newblock {\em Technical Survey Paper}, 2025.
+
+    \bibitem{AbadPerez2024}
+    D.~A. Pérez, B.~M. Al-Hadithi, y V.~C. Martín.
+    \newblock Navigation of Mobile Robots Using Neural Networks and Genetic Algorithms.
+    \newblock {\em IEEE LatAm Transactions}, 2024.
+
+    \bibitem{Guo2025}
+    D.~Guo, Y.~Zhu, y K.~Lu.
+    \newblock Map-less Navigation Algorithm for Autonomous Vehicles Based on Deep Reinforcement Learning.
+    \newblock {\em Advances in Computer, Signals and Systems}, 9(1):123--131, 2025.
+
+    \bibitem{Gao2025}
+    J.~Gao, X.~Pang, Q.~Liu, y Y.~Li.
+    \newblock Hierarchical Reinforcement Learning for Safe Mapless Navigation with Congestion Estimation.
+    \newblock {\em IEEE International Conference on Robotics and Automation (ICRA)}, 2025.
+
+    \bibitem{Ge2024}
+    L.~Ge, X.~Zhou, Y.~Li, y Y.~Wang.
+    \newblock Deep reinforcement learning navigation via decision transformer in autonomous driving.
+    \newblock {\em Frontiers in Neurorobotics}, 18:1338189, 2024.
+
+    \bibitem{Shakya2023}
+    A.~K. Shakya, G.~Pillai, y S.~Chakrabarty.
+    \newblock Reinforcement learning algorithms: a brief survey.
+    \newblock {\em Expert Systems with Applications}, 231:120495, 2023.
+
+    \bibitem{RLOverview}
+    R.~S. Sutton y A.~G. Barto.
+    \newblock {\em Reinforcement Learning: An Introduction}.
+    \newblock MIT Press, 2018.
+
+\end{thebibliography}
