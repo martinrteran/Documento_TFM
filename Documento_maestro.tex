@@ -15,6 +15,8 @@
 % \addbibresource{bibliografia.bib}
 \usepackage[authoryear]{natbib}
 \bibliographystyle{unsrtnat}
+%\usepackage[numbers,square,comma,sort&compress]{natbib}
+
 
 % Control sobre los márgenes
 \setlength{\topmargin}{-1cm}
@@ -22,7 +24,7 @@
 \setlength{\linewidth}{3cm}
 
 % Estilo
-\usepackage{amsmath,amssymb,amsfonts,stackrel,hyperref}
+\usepackage{amsmath,amssymb,amsfonts,stackrel,hyperref,booktabs}
 \usepackage{graphicx,color}
 \definecolor{verde}{RGB}{0, 83, 62}
 \usepackage{setspace}
@@ -33,7 +35,7 @@
 \usepackage{tabularx,multirow,rotating,longtable}
 
 % Código
-\usepackage{listings} 
+\usepackage{listings}
 \usepackage[mathscr]{euscript}
 \lstdefinestyle{estiloMUICD}{
     backgroundcolor=\color{black!5!white},
@@ -58,7 +60,7 @@
 
 % Tikz
 \usepackage{tikz}
-\usetikzlibrary{arrows}
+\usetikzlibrary{matrix,chains,positioning,arrows,babel}
 
 % Encabezados
 \usepackage{fancyhdr}
@@ -112,7 +114,7 @@
 
 
 \newpage
-\addcontentsline{toc}{chapter}{Bibliografía y referencias} %Para 
+\addcontentsline{toc}{chapter}{Bibliografía y referencias} %Para
 
 \bibliography{bibliografia}
 % \printbibliography
