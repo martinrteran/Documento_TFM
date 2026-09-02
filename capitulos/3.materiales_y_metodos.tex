@@ -19,6 +19,13 @@ Ante la falta de observabilidad completa del estado geométrico $s_t$, el agente
     b_{t+1}(s') = \eta \, O(o_{t+1} | s', a_t) \sum_{s \in S} T(s'|s, a_t) b_t(s)
 \end{equation}
 donde $\eta$ es una constante normalizadora de probabilidad \citep{md2024novel}.
+\subsection{Arquitectura de control}
+\begin{figure}[hptb]
+    \centering
+    \includegraphics[width=0.8\linewidth]{imagenes/TFM_Control}
+    \caption[Arquitectura de control DRL]{El entorno procesa el mapa y alimenta la capa de percepción sensorial (8 sectores de LIDAR + 2 coordenadas polares de la meta). El vector de observación $o_t \in \mathbb{R}^{11}$ pasa al agente DRL (DQN/PPO) para la selección de acciones discretas. Paralelamente, una cola temporal (deque) evalúa si el robot está bloqueado (InterruptHandler), activando un mecanismo de reinicio suave para fomentar la exploración. La función de recompensa evalúa la transición y realimenta al agente para el proceso de actualización.}
+    \label{fig:tfmcontrol}
+\end{figure}
 
 \section{Modelo Cinemático del AGV sobre Rejilla}
 El vehículo de guiado automático (AGV) se desplaza sobre una cuadrícula regular discreta con celdas de tamaño fijo $\Delta_{cell} = 10$\,unidades de simulación. En esta tesis, se diseñan, implementan y evalúan dos modelos cinemáticos alternativos para el AGV, que adaptan la toma de decisiones al espacio cartesiano discreto de la rejilla:
