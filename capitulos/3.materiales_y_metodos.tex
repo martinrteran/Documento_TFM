@@ -178,11 +178,21 @@ El diseño estructural paramétrico de cada modelo se detalla en el Cuadro~\ref{
     \end{tabular}
 \end{table}
 
+\subsection{Aproximación de Valor de Acción (DQN)}
+La arquitectura del \textit{Deep Q-Network} (DQN) se orienta a aproximar la función de valor de acción óptima $Q^*(s, a)$. A diferencia de los métodos de gradiente de política, la red genera predicciones escalares (Q-Values) para todas las acciones posibles de forma simultánea. En el marco de esta tesis, se han implementado dos variantes estructurales para la evaluación mediante Q-Learning:
+
+\begin{itemize}
+    \item \textbf{Red Base Asimétrica (\texttt{GridAgentNet}):} Una topología estática diseñada como \textit{baseline} inicial. Está compuesta por dos capas ocultas con un fuerte descenso dimensional (de $253$ a $56$ neuronas). Esta asimetría acentuada busca forzar una compresión rápida del espacio de características perceptuales antes de proyectarlo al espacio de acciones.
+    \item \textbf{Red Q Paramétrica (\texttt{SimpleQNetwork}):} Una arquitectura modular y simétrica que permite ajustar dinámicamente tanto la profundidad (número de capas ocultas) como la anchura (dimensión $H$) de la red. Favorece la ejecución de estudios de hiperparámetros sobre la capacidad de generalización del modelo, empleando un diseño estándar con capas lineales sucesivas de dimensión $H$.
+\end{itemize}
+
+En ambas variantes, la capa de salida carece de función de activación (\textit{Linear}), lo que permite que los estimadores $Q(s, a)$ abarquen todo el rango de los números reales, un requisito indispensable para alcanzar los valores extremos de las recompensas dispersas (como $+100$ o $-100$). Durante la fase de inferencia, la selección de la acción óptima se realiza de manera determinista evaluando $a_t = \arg\max_a Q(\mathbf{o}_t, a)$.
+
 \subsection{Actor-Crítico Asimétrico con PPO}
 La arquitectura de optimización de política proximal (PPO) se divide en dos redes independientes sin pesos compartidos para evitar interferencias en el cálculo de los gradientes entre el objetivo de política y el de valor:
 \begin{itemize}
-    \item \textbf{Actor (\texttt{PolicyNetwork}):} Actúa como la función de política estocástica $\pi_\theta(a_t \mid s_t)$. La capa de salida aplica una función de activación \textit{Softmax} sobre la dimensión de las acciones, generando una distribución de probabilidad categórica de la cual se muestrea la acción a ejecutar.
-    \item \textbf{Crítico (\texttt{ValueNetwork}):} Estima la función de valor del estado $V_\phi(s_t)$. Su salida es un único nodo escalar lineal, entrenado para minimizar el error cuadrático medio respecto a los retornos descontados observados empíricamente.
+    \item \textbf{Actor (\texttt{PolicyNetwork}):} Actúa como la función de política estocástica $\pi_\theta(a_t \mid \mathbf{o}_t)$. La capa de salida aplica una función de activación \textit{Softmax} sobre la dimensión de las acciones, generando una distribución de probabilidad categórica de la cual se muestrea la acción a ejecutar.
+    \item \textbf{Crítico (\texttt{ValueNetwork}):} Estima la función de valor del estado $V_\phi(\mathbf{o}_t)$. Su salida es un único nodo escalar lineal, entrenado para minimizar el error cuadrático medio respecto a los retornos descontados observados empíricamente.
 \end{itemize}
 
 \subsection{Extensión Recurrente Propuesta (PPO-LSTM)}\label{sec:ppo_lstm}
