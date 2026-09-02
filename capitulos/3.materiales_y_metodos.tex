@@ -143,13 +143,13 @@ Los componentes de la función se definen de la siguiente manera:
     donde el factor $\lambda_{\text{prox}}$ pondera el coste máximo impuesto antes del impacto inminente.
 \end{itemize}
 \section{Arquitecturas de Redes Neuronales DQN y PPO}
-Las aproximaciones de las funciones de valor y las políticas del actor-crítico se modelan mediante perceptrones multicapa (MLP) totalmente conectados. La dimensión de la capa de entrada $D_{\text{obs}}$ se adapta dinámicamente a la resolución del sensor ($D_{\text{obs}} = 10$ para $N_{\text{sec}}=4$, y $D_{\text{obs}} = 18$ para $N_{\text{sec}}=8$). Del mismo modo, la capa de salida se ajusta a la cardinalidad del espacio de acciones discreto $|\mathcal{A}| \in \{3, 4\}$.
+Las aproximaciones de las funciones de valor y las políticas del actor-crítico se modelan mediante perceptrones multicapa (MLP) totalmente conectados. La dimensión de la capa de entrada, $D_{\text{obs}}$, se adapta dinámicamente tanto a la resolución del sensor ($N_{\text{sec}} \in \{4, 8\}$) como a la configuración del estado perceptual (inclusión o exclusión de la memoria inercial $a_{t-1}$). En consecuencia, el tamaño de la entrada abarca los posibles valores $D_{\text{obs}} \in \{10, 11, 18, 19\}$. Del mismo modo, la capa de salida se ajusta a la cardinalidad del espacio de acciones discreto $|\mathcal{A}| \in \{3, 4\}$, dependiente del modelo cinemático activo.
 
-El diseño estructural de cada modelo se resume en el Cuadro~\ref{tab:arquitectura_redes_detallada}.
+El diseño estructural paramétrico de cada modelo se detalla en el Cuadro~\ref{tab:arquitectura_redes_detallada}.
 
 \begin{table}[htbp]
     \centering
-    \caption{Topología y dimensiones de las redes neuronales implementadas para los agentes.}
+    \caption{Topología y dimensiones de las redes neuronales implementadas para los agentes reactivos. La dimensión de entrada $D_{\text{obs}}$ varía según la configuración del entorno (resolución del LiDAR y uso de acción previa).}
     \label{tab:arquitectura_redes_detallada}
     \begin{tabular}{llcl}
         \toprule
@@ -186,13 +186,13 @@ La arquitectura de optimización de política proximal (PPO) se divide en dos re
 \end{itemize}
 
 \subsection{Extensión Recurrente Propuesta (PPO-LSTM)}\label{sec:ppo_lstm}
-Para abordar la pérdida de la propiedad de Markov derivada de las observaciones parciales, se propone una extensión de la topología reactiva introduciendo una arquitectura recurrente. Para garantizar la estabilidad de la optimización \textit{on-policy}, se diseña utilizando una única capa LSTM. Arquitecturas con múltiples capas recurrentes son más propensas al desvanecimiento del gradiente sin ofrecer ventajas competitivas en navegación sobre cuadrícula 2D.
+Para abordar la pérdida de la propiedad de Markov derivada de las observaciones parciales de forma estructural, se propone una extensión de la topología reactiva introduciendo una arquitectura recurrente. Para garantizar la estabilidad de la optimización \textit{on-policy}, se diseña utilizando una única capa LSTM. Arquitecturas con múltiples capas recurrentes incrementan la susceptibilidad al desvanecimiento del gradiente (\textit{vanishing gradient}) sin ofrecer ventajas empíricas demostrables en entornos de navegación discreta espacial.
 
 El flujo de procesamiento propuesto para la red recurrente se define como:
 \begin{enumerate}
-    \item \textbf{Extractor de Características:} Una única capa lineal inicial (e.g., $64$ nodos con ReLU) que procesa la observación cruda $\mathbf{o}_t$.
-    \item \textbf{Núcleo Recurrente (Memoria):} Una capa LSTM de tamaño de estado oculto ($h_t, c_t$) de $64$ unidades. Esta capa integra temporalmente las características extraídas.
-    \item \textbf{Cabeceras (Heads):} La salida temporal de la LSTM alimenta directamente dos capas lineales finales separadas: una con activación Softmax para inferir la política $\pi(a_t | \mathbf{o}_{\leq t})$, y otra lineal escalar para aproximar el valor $V(\mathbf{o}_{\leq t})$.
+    \item \textbf{Extractor de Características:} Una capa lineal inicial acoplada a una activación ReLU (e.g., $64$ nodos) que procesa la observación cruda $\mathbf{o}_t \in \mathbb{R}^{D_{\text{obs}}}$.
+    \item \textbf{Núcleo Recurrente (Memoria):} Una capa LSTM con tamaño de estado oculto $(h_t, c_t)$ de $64$ unidades. Esta capa integra temporalmente las secuencias de características extraídas.
+    \item \textbf{Cabeceras (\textit{Heads}):} La salida temporal de la LSTM alimenta directamente dos capas lineales finales separadas: una con activación Softmax para inferir la política $\pi(a_t \mid \mathbf{o}_{\leq t})$, y otra escalar para aproximar la función de valor $V(\mathbf{o}_{\leq t})$.
 \end{enumerate}
 
 \begin{figure}[htbp]
