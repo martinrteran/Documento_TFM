@@ -29,108 +29,86 @@ La arquitectura de control se basa en un entorno matricial en el que el robot se
     \label{fig:tfmcontrol}
 \end{figure}
 
-Como se observa en la \fig{fig:tfmcontrol}, las observaciones ($o_t$) y la señal de recompensa ($R_t(o_t,a_t)$) se almacenan en una cola de experiencia para el posterior entrenamiento de las redes neuronales del agente.
+Como se observa en \fig{fig:tfmcontrol}, las observaciones ($o_t$) y la señal de recompensa ($R_t(o_t,a_t)$) se almacenan en una cola de experiencia para el posterior entrenamiento de las redes neuronales del agente.
 
 \section{Modelo Cinemático del AGV sobre Rejilla}
 El vehículo de guiado automático (AGV) opera sobre una cuadrícula discreta de celda fija $\Delta_{\text{cell}} = 10$\,unidades de simulación. Y se formalizan dos modelos cinemáticos alternativos en espacio discreto.
 
 \subsection{Modelo con Giro y Avance (\texttt{GridRobot})}
 El estado del AGV en el instante $t$ se define por el vector de pose $\mathbf{x}_t = [x_t, y_t, \theta_t]^T \in \mathcal{X}$, con $\mathcal{X} = \mathbb{Z}^2 \times \Theta$ y $\Theta = \{0^\circ, 90^\circ, 180^\circ, 270^\circ\}$. La transición de estado dada la acción $a_t \in \{0, 1, 2\}$ se rige por la ecuación diferencial discreta:
-
-En este modelo, el AGV opera sobre la rejilla celular de forma discreta paso a paso (un paso o celda por iteración de simulación $t$), sin una velocidad física real ni integración temporal continua. La pose del robot se define en cada iteración mediante el vector discreto de tres estados:
 \begin{equation}
-    \mathbf{x}_t = [x_{t}, y_{t}, \theta_t]^T \in \mathbb{Z}^2 \times \{0, 90^\circ, 180^\circ, 270^\circ\}
+    \mathbf{x}_{t+1} = \mathbf{x}_t + \mathbf{f}(\mathbf{x}_t, a_t)
 \end{equation}
-Donde $x_{t}, y_{t} \in \mathbb{Z}$ representan las coordenadas discretas de la celda ocupada, y $\theta_t$ define su orientación angular discreta. Las transiciones de pose en cada iteración $t$ dependen estrictamente de la acción discreta ejecutada $a_t \in \{0, 1, 2\}$, avanzando una celda exacta o girando en incrementos rígidos de $90^\circ$:
-\begin{itemize}
-    \item \textbf{Si $a_t = 0$ (Avanzar):} El robot avanza exactamente un paso o celda en la dirección dada por su orientación angular $\theta_t$:
-    \begin{align}
-        x_{t+1} &= x_{t} + \cos(\theta_t) \\
-        y_{t+1} &= y_{ t} + \sin(\theta_t) \\
-        \theta_{t+1} &= \theta_t
-    \end{align}
-    donde el desplazamiento cardinal está acoplado con la orientación discreta evaluando las funciones trigonométricas de forma rígida ($\cos(0^\circ) = 1$, $\cos(180^\circ) = -1$, $\sin(90^\circ) = 1$, etc.).
-    \item \textbf{Si $a_t = 1$ (Girar Izquierda):} El robot mantiene su posición y rota $+90^\circ$ en su celda:
-    \begin{equation}
-        x_{ t+1} = x_{ t}, \quad y_{ t+1} = y_{ t}, \quad \theta_{t+1} = (\theta_t + 90^\circ) \pmod{360^\circ}
-    \end{equation}
-    \item \textbf{Si $a_t = 2$ (Girar Derecha):} El robot mantiene su posición y rota $-90^\circ$ en su celda:
-    \begin{equation}
-        x_{ t+1} = x_{ t}, \quad y_{ t+1} = y_{ t}, \quad \theta_{t+1} = (\theta_t - 90^\circ) \pmod{360^\circ}
-    \end{equation}
-\end{itemize}
-Este modelo cinemático discreto elimina el concepto de tiempo de integración diferencial continuo, respondiendo de manera inmediata a la toma de decisiones por iteración.
+donde el operador de transición $\mathbf{f}(\mathbf{x}_t, a_t)$ se define vectorialmente como:
+
+\begin{equation}
+    \mathbf{f}(\mathbf{x}_t, a_t) =
+    \begin{bmatrix}
+        \delta(a_t) \mathbf{d}(\theta_t) \\
+        \Delta\theta(a_t)
+    \end{bmatrix}
+\end{equation}
+
+Siendo $\mathbf{d}(\theta_t) = [\cos\theta_t, \, \sin\theta_t]^T \in \{-1, 0, 1\}^2$ el vector unitario de dirección cardinal, $\delta(a_t) = \mathbb{I}(a_t = 0)$ la función indicadora de traslación, y $\Delta\theta(a_t)$ el incremento angular modelado como:
+
+\begin{equation}
+    \Delta\theta(a_t) =
+    \begin{cases}
+        0^\circ & \text{si } a_t = 0 \text{ (Avanzar)} \\
+        +90^\circ \pmod{360^\circ} & \text{si } a_t = 1 \text{ (Giro Izquierda)} \\
+        -90^\circ \pmod{360^\circ} & \text{si } a_t = 2 \text{ (Giro Derecha)}
+    \end{cases}
+\end{equation}
+
+
 
 \subsection{Modelo sin Giro y Traslación Directa (\texttt{GridRobotNotTurning})}
-En este segundo modelo, el AGV se desplaza de forma puramente traslacional cartesiana discreta sobre la rejilla, ejecutando exactamente un movimiento de un paso (celda) por iteración $t$ sin necesidad de rotación previa. Su orientación angular $\theta$ permanece constante e inmutable, reduciendo el vector de pose del robot a sus coordenadas de posición discretas en la cuadrícula:
-\begin{equation}
-    \mathbf{x}_t = [x_{t}, y_{t}]^T \in \mathbb{Z}^2
-\end{equation}
-Las transiciones espaciales se efectúan directamente en un solo paso de simulación para cada iteración de acuerdo con la acción cardinal elegida $a_t \in \{0, 1, 2, 3\}$:
-\begin{itemize}
-    \item \textbf{Si $a_t = 0$ (Norte / Arriba):} $x_{ t+1} = x_{ t}, \quad y_{ t+1} = y_{ t} - 1$
-    \item \textbf{Si $a_t = 1$ (Sur / Abajo):} $x_{ t+1} = x_{ t}, \quad y_{ t+1} = y_{ t} + 1$
-    \item \textbf{Si $a_t = 2$ (Este / Derecha):} $x_{ t+1} = x_{ t} + 1, \quad y_{ t+1} = y_{ t}$
-    \item \textbf{Si $a_t = 3$ (Oeste / Izquierda):} $x_{ t+1} = x_{ t} - 1, \quad y_{ t+1} = y_{ t}$
-\end{itemize}
-Este enfoque simplifica la navegación y acelera el aprendizaje al eliminar el coste inercial rotacional de la rejilla.
+Para este modelo puramente holonómico discreto, la orientación se asume constante, reduciendo el espacio de estados a la posición cartesiana $\mathbf{p}_t = [x_t, y_t]^T \in \mathbb{Z}^2$. La ecuación de movimiento adopta la forma matricial compacta:
 
+\begin{equation}
+    \mathbf{p}_{t+1} = \mathbf{p}_t + \mathbf{M} \mathbf{e}_{a_t}
+\end{equation}
+
+donde $\mathbf{e}_{a_t} \in \mathbb{R}^4$ es el vector canónico unitario de la acción $a_t \in \{0, 1, 2, 3\}$, y $\mathbf{M} \in \mathbb{Z}^{2 \times 4}$ es la matriz de desplazamiento cardinal:
+
+\begin{equation}
+    \mathbf{M} =
+    \begin{bmatrix}
+        0 &  0 &  1 & -1 \\
+        -1 &  1 &  0 &  0
+    \end{bmatrix}
+    \quad \text{correspondiente a } \{\text{Norte}, \text{Sur}, \text{Este}, \text{Oeste}\}
+\end{equation}
 \section{Espacio de Observaciones Perceptuales Locales}
-La observación local que percibe el AGV en cada paso temporal, $o_t \in \mathbb{R}^{D_{obs}}$, constituye un vector ligero diseñado para no presuponen un mapa previo ni localización global GPS. Para adaptarse a la cinemática de cada robot, la estructura del vector de observación se define de la siguiente manera para cada tipo de robot:
+El estado observable por el agente en cada instante $t$, denotado como $\mathbf{o}_t \in \mathbb{R}^{D_{\text{obs}}}$, se estructura como un vector denso formado por la concatenación de la información exteroceptiva del sensor LiDAR y la odometría relativa hacia la meta. Inicialmente, este vector se define como:
 
-\subsection{Observación para el Robot con Giro (\texttt{GridRobot})}
-Para el modelo no holonómico que rota y avanza, la memoria de las transiciones de las acciones en la iteración anterior actúa como indicador discreto en la rejilla. El vector de observación se define con dimensión $D_{obs} = 2\cdot N_{sec} + 2 = 10$ (para $N_{sec} = 4$):
-\begin{equation}
-    o_t = \left[ d_{lidar}, \theta_{lidar}, d_{goal}, \theta_{goal} \right]^T
-\end{equation}
-Donde las variables perceptuales se definen como:
-\begin{itemize}
-    \item $\mathbf{r}_{Lidar} \in \mathbb{R}^{N_{sec}}$ representa el vector de lecturas de distancias de la clase \texttt{GridLidar}. El barrido circular completo de $360^\circ$ se divide en $N_{sec} = 4$ sectores angulares regulares de $90^\circ$ cada uno. Para cada sector, se extrae la medición del rayo de rango mínimo hacia el obstáculo más cercano:
-    \begin{equation}
-        r_{Lidar}^{(k)} = \min_{\phi \in \text{Sector}_k} \left\{ d_{ray}(\phi)\right\}, \quad k = 1, \dots, N_{sec}
-    \end{equation}
-    \item $\theta_{Lidar} \in \mathbb{R}^{N_{sec}}$ representa el vector de lecturas de ángulos de la clase \texttt{GridLidar} correspondientes a cada elemento de $r_{lidar}$.
-    \item $d_{goal}$ es la distancia cartesiana euclídea a la meta de navegación \citep{xue2022using}.
-    \item $\theta_{goal}$ es el rumbo angular relativo del robot respecto al objetivo \citep{xue2022using}.
-\end{itemize}
-
-\subsection{Observación para el Robot sin Giro (\texttt{GridRobotNotTurning})}
-Dado que este modelo traslada al robot directamente y no experimenta cambios de rotación activa, la orientación y variación angular es siempre nula respecto al movimiento, y el rumbo hacia el objetivo $\theta_{goal}$ se mide directamente respecto a los ejes de coordenadas fijos del mapa. Para optimizar el tamaño del estado y unificar la arquitectura neuronal de ambos agentes, se incluye únicamente el identificador de la acción discreta previa, resultando en un vector de observación de dimensión $D_{obs} = 2\cdot N_{sec} + 2 = 18$:
-\begin{equation}
-    o_t = \left[ \mathbf{r}_{Lidar}, \theta_{lidar}, d_{goal}, \theta_{goal} \right]^T
+\begin{equation}\label{eq:obs_base}
+    \mathbf{o}_t = \begin{bmatrix} \mathbf{r}_{\text{LiDAR}} \\ \boldsymbol{\theta}_{\text{LiDAR}} \\ d_{\text{goal}} \\ \theta_{\text{goal}} \end{bmatrix} \in \mathbb{R}^{2 N_{\text{sec}} + 2}
 \end{equation}
 
-En ambos casos, las variables perceptuales se definen como:
-\begin{itemize}
-    \item $\mathbf{r}_{Lidar} \in \mathbb{R}^{N_{sec}}$ representa el vector de lecturas de distancia normalizadas de la clase \texttt{GridLidar} \citep{sensor.txt}. El barrido circular completo de $360^\circ$ se divide en $N_{sec} = 8$ sectores angulares regulares de $45^\circ$ cada uno \citep{grid_training_19.txt}. Para cada sector, se extrae la medición del rayo de rango mínimo hacia el obstáculo más cercano, normalizada en el rango $[0, 1]$ con respecto al rango máximo del sensor $d_{max} = 10$\,celdas \citep{grid_training_19.txt, sensor.txt}:
-    \begin{equation}
-        r_{Lidar}^{(k)} = \min_{\phi \in \text{Sector}_k} \left\{ \frac{d_{ray}(\phi)}{d_{max}} \right\}, \quad k = 1, \dots, N_{sec}
-    \end{equation}
-    \item $d_{goal}$ es la distancia cartesiana euclídea normalizada relativa a la meta de navegación \citep{xue2022using}.
-    \item $\theta_{goal}$ es el rumbo angular relativo del robot respecto al objetivo \citep{xue2022using}.
-    \item $a_{t-1} \in A$ es el identificador de la acción discreta previa ejecutada por el robot (que actúa como memoria inercial para el POMDP).
-\end{itemize}
+donde $\mathbf{r}_{\text{LiDAR}}, \boldsymbol{\theta}_{\text{LiDAR}} \in \mathbb{R}^{N_{\text{sec}}}$ representan los vectores de distancias mínimas por sector y sus ángulos de incidencia asociados, respectivamente. Por su parte, $d_{\text{goal}}$ y $\theta_{\text{goal}}$ indican la distancia cartesiana euclídea y el ángulo relativo desde el AGV hasta la meta. La lectura de distancia no normalizada para cada sector $k$ se obtiene mediante:
 
-\section{Espacio de Acciones Discreto}
-De acuerdo con el desarrollo del software en el script \texttt{agent.txt}, la cinemática discreta de cada robot define un espacio de acciones discreto $A$ específico:
+\begin{equation}\label{eq:r_lidar}
+    r_{\text{LiDAR}}^{(k)} = \min_{\phi \in \text{Sector}_k} \{ d_{\text{ray}}(\phi) \}, \quad k \in \{1, \dots, N_{\text{sec}}\}
+\end{equation}
 
-\subsection{Espacio de Acciones para \texttt{GridRobot} (Avance y Giro)}
-Este espacio cuenta con cardinalidad $|A| = 3$, permitiendo rotar o trasladarse por separado para cumplir con las restricciones no holonómicas en la cuadrícula:
-\begin{itemize}
-    \item \textbf{Acción 0 (Avanzar):} Comando para avanzar una celda en línea recta en el sentido de la orientación discreta actual (traslación discreta de $\Delta_{celda} = 1$ en la dirección $\theta_t$, con variación angular nula $\Delta \theta = 0$).
-    \item \textbf{Acción 1 (Girar Izquierda):} Comando de rotación discreta a la izquierda (traslación espacial nula, rotación instantánea de $\Delta \theta = +90^\circ$ sobre la celda).
-    \item \textbf{Acción 2 (Girar Derecha):} Comando de rotación discreta a la derecha (traslación espacial nula, rotación instantánea de $\Delta \theta = -90^\circ$ sobre la celda).
-\end{itemize}
+Para abordar la pérdida de la propiedad de Markov inherente a la observabilidad parcial del entorno (POMDP), el espacio de observaciones se amplía incluyendo la memoria inercial de la última acción ejecutada, $a_{t-1}$. Adicionalmente, con el objetivo de estabilizar el cálculo de gradientes y acelerar la convergencia de la red neuronal, las magnitudes espaciales se normalizan al rango $[0, 1]$. La formulación final de \eq{eq:obs_base} resulta en:
 
-\subsection{Espacio de Acciones para \texttt{GridRobotNotTurning} (Sin Giro)}
-Este espacio posee cardinalidad $|A| = 4$, habilitando el movimiento cartesiano directo del robot hacia cualquier celda colindante en un solo paso de tiempo, sin alterar su rumbo \citep{agent.txt}:
-\begin{itemize}
-    \item \textbf{Acción 0 (Mover al Norte / Arriba):} Desplazamiento cartesiano directo de una celda hacia arriba ($\Delta x = 0, \Delta y = -1$, según convención).
-    \item \textbf{Acción 1 (Mover al Sur / Abajo):} Desplazamiento cartesiano directo de una celda hacia abajo ($\Delta x = 0, \Delta y = +1$).
-    \item \textbf{Acción 2 (Mover al Este / Derecha):} Desplazamiento cartesiano directo de una celda hacia la derecha ($\Delta x = +1, \Delta y = 0$).
-    \item \textbf{Acción 3 (Mover al Oeste / Izquierda):} Desplazamiento cartesiano directo de una celda hacia la izquierda ($\Delta x = -1, \Delta y = 0$).
-\end{itemize}
+\begin{equation}\label{eq:obs_norm}
+    \mathbf{o}_t = \begin{bmatrix} \bar{\mathbf{r}}_{\text{LiDAR}} \\ \boldsymbol{\theta}_{\text{LiDAR}} \\ \bar{d}_{\text{goal}} \\ \theta_{\text{goal}} \\ a_{t-1} \end{bmatrix} \in \mathbb{R}^{2 N_{\text{sec}} + 3}
+\end{equation}
 
+donde $\bar{\mathbf{r}}_{\text{LiDAR}}$ contiene las distancias sectoriales normalizadas respecto al rango máximo del sensor $d_{\text{max}}$, calculadas como:
+
+\begin{equation}\label{eq:r_lidar_norm}
+    \bar{r}_{\text{LiDAR}}^{(k)} = \min_{\phi \in \text{Sector}_k} \left\{ \frac{d_{\text{ray}}(\phi)}{d_{\text{max}}} \right\}, \quad k \in \{1, \dots, N_{\text{sec}}\}
+\end{equation}
+
+De manera análoga, $\bar{d}_{\text{goal}}$ representa la distancia cartesiana a la meta normalizada mediante $d_{\text{diag}}$, correspondiente a la diagonal del mapa cartográfico (distancia máxima franqueable en la rejilla):
+
+\begin{equation}\label{eq:d_goal_norm}
+    \bar{d}_{\text{goal}} = \frac{d_{\text{goal}}}{d_{\text{diag}}}
+\end{equation}
 \section{Función de Recompensa Compuesta}
 La recompensa asimétrica compuesta $R(s_t, a_t)$ asocia incentivos dispersos de finalización y penalizaciones estocásticas continuas de seguridad para evitar colisiones \citep{grid_training_19.txt}:
 \begin{equation}
@@ -155,16 +133,8 @@ donde:
             0.0, & \text{en otro caso}
         \end{cases}
     \end{equation}
-    fijando la penalización máxima en $\mathcal{P}_{max} = 10^{-2}$ ($0.01$) \citep{grid_training_19.txt}.
+    fijando la penalización máxima en $\mathcal{P}_{max} = 10^{-2}$ ($0.01$).
 \end{itemize}
-
-\section{Mecanismo de Reinicio Suave (Soft Reset)}
-Para prevenir los frecuentes atrapamientos y estancamientos de la política en zonas de pasillos estrechos o esquinas estáticas (mínimos locales de la rejilla), se define el manejador de interrupciones \textbf{\texttt{InterruptHandler}} \citep{TrainingManager.txt}. El sistema monitorea continuamente una cola de doble extremo (\texttt{deque}) de tamaño fijo de las últimas acciones y recompensas acumuladas \citep{TrainingManager.txt}. La condición de atasco se determina heurísticamente mediante la función \texttt{is\_stuck}:
-\begin{equation}
-    \text{is\_stuck} = \text{std}(\mathbf{x}_{last\_30}) < \epsilon_{threshold} \quad \wedge \quad a_t \in A_{turn}
-\end{equation}
-Donde $A_{turn}$ se corresponde con acciones oscilatorias o repetitivas que no producen progreso traslacional real (e.g., giros alternados en \texttt{GridRobot} o movimientos cíclicos de ida y vuelta en \texttt{GridRobotNotTurning}).
-Si el robot se encuentra oscilando o atascado, el manejador ejecuta de manera reactiva un reinicio suave del escenario de exploración (\textbf{\texttt{do\_soft\_reset}}) \citep{TrainingManager.txt}. Este algoritmo purga el buffer de memoria del replay e incrementa temporalmente el factor de exploración estocástica $\epsilon$ del agente a un valor alto ($\epsilon \leftarrow 0.8$) para forzar al AGV a escapar del obstáculo de la rejilla de forma reactiva sin interrumpir drásticamente la continuidad del proceso de aprendizaje \citep{grid_training_19.txt, TrainingManager.txt}.
 
 \section{Arquitecturas de Redes Neuronales DQN y PPO}
 Las aproximaciones de valor y políticas del actor-crítico se estiman mediante perceptrones multicapa totalmente conectados (MLP) cuyas capas y dimensiones se detallan en el Cuadro~\ref{tab:arquitectura_redes_detallada} y se visualizan estructuralmente en la Figura~\ref{fig:tikz_mlp_arquitectura} \citep{networks.txt}. Estas estructuras se adaptan al modelo cinemático activo:
