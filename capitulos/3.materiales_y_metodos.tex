@@ -109,56 +109,91 @@ De manera análoga, $\bar{d}_{\text{goal}}$ representa la distancia cartesiana a
 \begin{equation}\label{eq:d_goal_norm}
     \bar{d}_{\text{goal}} = \frac{d_{\text{goal}}}{d_{\text{diag}}}
 \end{equation}
-\section{Función de Recompensa Compuesta}
-La recompensa asimétrica compuesta $R(s_t, a_t)$ asocia incentivos dispersos de finalización y penalizaciones estocásticas continuas de seguridad para evitar colisiones \citep{grid_training_19.txt}:
-\begin{equation}
-    R(s_t, a_t) = R_{terminal} + \mathcal{R}_{progreso} - R_{time} - \mathcal{P}_{proximidad}
-\end{equation}
-donde:
-\begin{itemize}
-    \item $R_{terminal}$ es la recompensa estocástica de estados de parada terminales:
-    \begin{equation}
-        R_{terminal} = \begin{cases}
-            +100.0, & \text{si AGV alcanza meta (éxito)} \\
-            -100.0, & \text{si colisiona con obstáculo} \\
-            -100.0, & \text{si excede límite temporal de pasos } T_{max}
-        \end{cases}
-    \end{equation}
-    \item $\mathcal{R}_{progreso} = w_d \cdot (d_{t-1} - d_t)$ premia la aproximación radial real hacia la meta de destino.
-    \item $R_{time} = 0.1$ es una penalización constante por paso de tiempo para forzar al AGV a tomar rutas directas y cortas \citep{article_1743243135.pdf}.
-    \item $\mathcal{P}_{proximidad}$ es la penalización de seguridad activa si el AGV entra dentro de la zona crítica definida por el radio de seguridad de la rejilla ($\mathcal{D}_{safety} = d_{max} \cdot \frac{2}{3}$) \citep{grid_training_19.txt}:
-    \begin{equation}
-        \mathcal{P}_{proximidad} = \begin{cases}
-            \mathcal{P}_{max} \cdot \left(1.0 - \frac{d_{min}}{\mathcal{D}_{safety}}\right), & \text{si } d_{min} < \mathcal{D}_{safety} \\
-            0.0, & \text{en otro caso}
-        \end{cases}
-    \end{equation}
-    fijando la penalización máxima en $\mathcal{P}_{max} = 10^{-2}$ ($0.01$).
-\end{itemize}
+\section{Función de Recompensa Paramétrica}
+La señal de recompensa $r_t = \mathcal{R}(s_t, a_t)$ se formula mediante una combinación lineal de incentivos dispersos (\textit{sparse}) y densos. Para permitir la experimentación entre diferentes modelos cinemáticos y casuísticas, los pesos de cada componente están parametrizados \citep{grid_training_19.txt}:
 
+\begin{equation}\label{eq:reward_total}
+    r_t = r_{\text{term}} + r_{\text{prog}} - r_{\text{step}} - r_{\text{prox}}
+\end{equation}
+
+Los componentes de la función se definen de la siguiente manera:
+
+\begin{itemize}
+    \item $r_{\text{term}}$ asigna la recompensa de los estados terminales (absorbentes), cuyos valores exactos ($R_{\text{win}}, R_{\text{fail}}, R_{\text{timeout}}$) se ajustan empíricamente según la complejidad del escenario:
+    \begin{equation}
+        r_{\text{term}} = \begin{cases}
+            R_{\text{win}} > 0, & \text{si el AGV alcanza la meta} \\
+            R_{\text{fail}} < 0, & \text{si colisiona con un obstáculo} \\
+            R_{\text{timeout}} < 0, & \text{si excede el horizonte máximo } T_{\text{max}} \\
+            0, & \text{durante las transiciones regulares}
+        \end{cases}
+    \end{equation}
+
+    \item $r_{\text{prog}} = w_d (d_{t-1} - d_t)$ es un término de \textit{reward shaping} basado en el potencial. Escala con el peso $w_d$ la reducción de la distancia cartesiana entre el AGV y la meta respecto a la iteración anterior.
+
+    \item $r_{\text{step}}$ es una pequeña penalización escalar aplicada en cada transición regular. Su objetivo es evitar oscilaciones innecesarias e incentivar políticas de ruta mínima \citep{article_1743243135.pdf}.
+
+    \item $r_{\text{prox}}$ introduce una penalización de seguridad repulsiva si el agente invade un margen de proximidad crítico. Dada la distancia mínima censada $d_{\text{min}} = \min(\mathbf{r}_{\text{LiDAR}})$ y un radio de seguridad parametrizable $D_{\text{safe}}$:
+    \begin{equation}
+        r_{\text{prox}} = \begin{cases}
+            \lambda_{\text{prox}} \left( 1 - \frac{d_{\text{min}}}{D_{\text{safe}}} \right), & \text{si } d_{\text{min}} < D_{\text{safe}} \\
+            0, & \text{en caso contrario}
+        \end{cases}
+    \end{equation}
+    donde el factor $\lambda_{\text{prox}}$ pondera el coste máximo impuesto antes del impacto inminente.
+\end{itemize}
 \section{Arquitecturas de Redes Neuronales DQN y PPO}
-Las aproximaciones de valor y políticas del actor-crítico se estiman mediante perceptrones multicapa totalmente conectados (MLP) cuyas capas y dimensiones se detallan en el Cuadro~\ref{tab:arquitectura_redes_detallada} y se visualizan estructuralmente en la Figura~\ref{fig:tikz_mlp_arquitectura} \citep{networks.txt}. Estas estructuras se adaptan al modelo cinemático activo:
+Las aproximaciones de las funciones de valor y las políticas del actor-crítico se modelan mediante perceptrones multicapa (MLP) totalmente conectados. La dimensión de la capa de entrada $D_{\text{obs}}$ se adapta dinámicamente a la resolución del sensor ($D_{\text{obs}} = 10$ para $N_{\text{sec}}=4$, y $D_{\text{obs}} = 18$ para $N_{\text{sec}}=8$). Del mismo modo, la capa de salida se ajusta a la cardinalidad del espacio de acciones discreto $|\mathcal{A}| \in \{3, 4\}$.
+
+El diseño estructural de cada modelo se resume en el Cuadro~\ref{tab:arquitectura_redes_detallada}.
 
 \begin{table}[htbp]
     \centering
-    \caption{Parámetros y dimensiones estructurales de las redes neuronales DQN y PPO implementadas.}
+    \caption{Topología y dimensiones de las redes neuronales implementadas para los agentes.}
     \label{tab:arquitectura_redes_detallada}
-    \begin{tabular}{llcll}
+    \begin{tabular}{llcl}
         \toprule
-        \textbf{Red Neuronal} & \textbf{Capa / Tipo} & \textbf{Dimensión (Nodos)} & \textbf{Activación} & \textbf{Parámetro del Código} \\
+        \textbf{Red Neuronal} & \textbf{Capa / Tipo} & \textbf{Dimensión (Nodos)} & \textbf{Activación} \\
         \midrule
-        \textbf{SimpleQNetwork} & Entrada & $D_{obs} = 12$ & Ninguna & Observaciones del sensor \\citep{networks.txt} \\
-        (Agente DQN)            & Oculta 1 (Linear) & $253$ & ReLU & Extracción de características \\
-        & Oculta 2 (Linear) & $56$ & ReLU & Homogeneización dimensional \\
-        & Salida (Linear) & $3 / 4$ & Ninguna & Valores Q de acciones discretas \citep{networks.txt} \\
+        \textbf{GridAgentNet} & Entrada & $D_{\text{obs}}$ & Ninguna \\
+        (Agente Base) & Oculta 1 (Lineal) & $253$ & ReLU \\
+        & Oculta 2 (Lineal) & $56$ & ReLU \\
+        & Salida (Lineal) & $|\mathcal{A}|$ & Ninguna (Q-Values) \\
         \midrule
-        \textbf{ValueNetwork}   & Entrada & $D_{obs} = 12$ & Ninguna & Vector de estado perceptual \\citep{networks.txt} \\
-        (Crítico PPO)           & Oculta 1 (Linear) & $H = 64$ & ReLU & Dimensión oculta del crítico \citep{grid_training_19.txt} \\
-        & Oculta 2 (Linear) & $64$ & ReLU & Representación de valor \\
-        & Salida (Linear) & $1$ & Ninguna & Estimación de valor $V(s)$ \citep{networks.txt} \\
+        \textbf{SimpleQNetwork} & Entrada & $D_{\text{obs}}$ & Ninguna \\
+        (Agente DQN) & Oculta 1 (Lineal) & $H$ & ReLU \\
+        & Oculta 2 (Lineal) & $H$ & ReLU \\
+        & Salida (Lineal) & $|\mathcal{A}|$ & Ninguna (Q-Values) \\
+        \midrule
+        \textbf{PolicyNetwork} & Entrada & $D_{\text{obs}}$ & Ninguna \\
+        (Actor PPO) & Oculta 1 (Lineal) & $H = 128$ & ReLU \\
+        & Oculta 2 (Lineal) & $64$ & ReLU \\
+        & Salida (Lineal) & $|\mathcal{A}|$ & Softmax \\
+        \midrule
+        \textbf{ValueNetwork} & Entrada & $D_{\text{obs}}$ & Ninguna \\
+        (Crítico PPO) & Oculta 1 (Lineal) & $H = 128$ & ReLU \\
+        & Oculta 2 (Lineal) & $64$ & ReLU \\
+        & Salida (Lineal) & $1$ & Ninguna ($V(s)$) \\
         \bottomrule
     \end{tabular}
 \end{table}
+
+\subsection{Actor-Crítico Asimétrico con PPO}
+La arquitectura de optimización de política proximal (PPO) se divide en dos redes independientes sin pesos compartidos para evitar interferencias en el cálculo de los gradientes entre el objetivo de política y el de valor:
+\begin{itemize}
+    \item \textbf{Actor (\texttt{PolicyNetwork}):} Actúa como la función de política estocástica $\pi_\theta(a_t \mid s_t)$. La capa de salida aplica una función de activación \textit{Softmax} sobre la dimensión de las acciones, generando una distribución de probabilidad categórica de la cual se muestrea la acción a ejecutar.
+    \item \textbf{Crítico (\texttt{ValueNetwork}):} Estima la función de valor del estado $V_\phi(s_t)$. Su salida es un único nodo escalar lineal, entrenado para minimizar el error cuadrático medio respecto a los retornos descontados observados empíricamente.
+\end{itemize}
+
+\subsection{Extensión Recurrente Propuesta (PPO-LSTM)}\label{sec:ppo_lstm}
+Para abordar la pérdida de la propiedad de Markov derivada de las observaciones parciales, se propone una extensión de la topología reactiva introduciendo una arquitectura recurrente. Para garantizar la estabilidad de la optimización \textit{on-policy}, se diseña utilizando una única capa LSTM. Arquitecturas con múltiples capas recurrentes son más propensas al desvanecimiento del gradiente sin ofrecer ventajas competitivas en navegación sobre cuadrícula 2D.
+
+El flujo de procesamiento propuesto para la red recurrente se define como:
+\begin{enumerate}
+    \item \textbf{Extractor de Características:} Una única capa lineal inicial (e.g., $64$ nodos con ReLU) que procesa la observación cruda $\mathbf{o}_t$.
+    \item \textbf{Núcleo Recurrente (Memoria):} Una capa LSTM de tamaño de estado oculto ($h_t, c_t$) de $64$ unidades. Esta capa integra temporalmente las características extraídas.
+    \item \textbf{Cabeceras (Heads):} La salida temporal de la LSTM alimenta directamente dos capas lineales finales separadas: una con activación Softmax para inferir la política $\pi(a_t | \mathbf{o}_{\leq t})$, y otra lineal escalar para aproximar el valor $V(\mathbf{o}_{\leq t})$.
+\end{enumerate}
 
 \begin{figure}[htbp]
     \centering
