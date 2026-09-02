@@ -1,6 +1,6 @@
 \chapter{Diseño y arquitectura}\label{cap:materiales-metodos} %Materiales y métodos}
 
-En este capítulo se describe de manera detallada la metodología propuesta para resolver el problema de navegación autónoma reactiva de un Vehículo de Guiado Automático (AGV) en entornos de rejilla con obstáculos estáticos. En primer lugar, se formaliza el problema de navegación map-less bajo el marco teórico de los Procesos de Decisión de Markov Parcialmente Observables (POMDP). Posteriormente, se exponen los modelos cinemáticos discretos implementados (para los robots GridRobot y GridRobotNotTurning), describiendo las transiciones paso a paso por iteración, así como el procesamiento del sensor GridLidar por secciones para controlar la dimensionalidad del estado. Asimismo, se detalla la formulación matemática de la función de recompensa compuesta asimétrica y la estructura de las redes neuronales profundas (DQN y PPO) utilizadas por los agentes. Finalmente, se profundiza en las heurísticas de detección de atascos cinemáticos del InterruptHandler y en la estrategia de recuperación mediante el mecanismo de reinicio suave (Soft Reset) diseñado para evadir de manera eficiente los atrapamientos en mínimos locales.
+En este capítulo se describe de manera detallada la metodología propuesta para resolver el problema de navegación autónoma reactiva de un Vehículo de Guiado Automático (AGV) en entornos de rejilla con obstáculos estáticos. En primer lugar, se formaliza el problema de navegación map-less bajo el marco teórico de los Procesos de Decisión de Markov Parcialmente Observables (POMDP). Posteriormente, se exponen los modelos cinemáticos discretos implementados (para los robots GridRobot y GridRobotNotTurning), describiendo las transiciones paso a paso por iteración, así como el procesamiento del sensor GridLidar por secciones para controlar la dimensionalidad del estado. Finalmente, se detalla la formulación matemática de la función de recompensa compuesta asimétrica y la estructura de las redes neuronales profundas (DQN y PPO) utilizadas por los agentes. % Finalmente, se profundiza en las heurísticas de detección de atascos cinemáticos del InterruptHandler y en la estrategia de recuperación mediante el mecanismo de reinicio suave (Soft Reset) diseñado para evadir de manera eficiente los atrapamientos en mínimos locales.
 
 
 \section{Formulación del Problema como POMDP}
@@ -19,18 +19,24 @@ Ante la falta de observabilidad completa del estado geométrico $s_t$, el agente
     b_{t+1}(s') = \eta \, O(o_{t+1} | s', a_t) \sum_{s \in S} T(s'|s, a_t) b_t(s)
 \end{equation}
 donde $\eta$ es una constante normalizadora de probabilidad \citep{md2024novel}.
-\subsection{Arquitectura de control}
-\begin{figure}[hptb]
+\section{Arquitectura de control}
+La arquitectura de control se basa en un entorno matricial en el que el robot se desplaza o rota secuencialmente por iteración. Este entorno envía el vector de observación ($o_t$), que describe el estado del robot y su entorno inmediato, al agente DRL para la selección de la acción discreta ($a_t$).
+
+\begin{figure}[htbp]
     \centering
-    \includegraphics[width=0.8\linewidth]{imagenes/TFM_Control}
-    \caption[Arquitectura de control DRL]{El entorno procesa el mapa y alimenta la capa de percepción sensorial (8 sectores de LIDAR + 2 coordenadas polares de la meta). El vector de observación $o_t \in \mathbb{R}^{11}$ pasa al agente DRL (DQN/PPO) para la selección de acciones discretas. Paralelamente, una cola temporal (deque) evalúa si el robot está bloqueado (InterruptHandler), activando un mecanismo de reinicio suave para fomentar la exploración. La función de recompensa evalúa la transición y realimenta al agente para el proceso de actualización.}
+    \includegraphics[width=0.85\linewidth]{imagenes/TFM_Control}
+    \caption[Arquitectura de control DRL]{Diagrama de la arquitectura de control DRL y flujo de información entre el entorno y el agente.}
     \label{fig:tfmcontrol}
 \end{figure}
 
+Como se observa en la \fig{fig:tfmcontrol}, las observaciones ($o_t$) y la señal de recompensa ($R_t(o_t,a_t)$) se almacenan en una cola de experiencia para el posterior entrenamiento de las redes neuronales del agente.
+
 \section{Modelo Cinemático del AGV sobre Rejilla}
-El vehículo de guiado automático (AGV) se desplaza sobre una cuadrícula regular discreta con celdas de tamaño fijo $\Delta_{cell} = 10$\,unidades de simulación. En esta tesis, se diseñan, implementan y evalúan dos modelos cinemáticos alternativos para el AGV, que adaptan la toma de decisiones al espacio cartesiano discreto de la rejilla:
+El vehículo de guiado automático (AGV) opera sobre una cuadrícula discreta de celda fija $\Delta_{\text{cell}} = 10$\,unidades de simulación. Y se formalizan dos modelos cinemáticos alternativos en espacio discreto.
 
 \subsection{Modelo con Giro y Avance (\texttt{GridRobot})}
+El estado del AGV en el instante $t$ se define por el vector de pose $\mathbf{x}_t = [x_t, y_t, \theta_t]^T \in \mathcal{X}$, con $\mathcal{X} = \mathbb{Z}^2 \times \Theta$ y $\Theta = \{0^\circ, 90^\circ, 180^\circ, 270^\circ\}$. La transición de estado dada la acción $a_t \in \{0, 1, 2\}$ se rige por la ecuación diferencial discreta:
+
 En este modelo, el AGV opera sobre la rejilla celular de forma discreta paso a paso (un paso o celda por iteración de simulación $t$), sin una velocidad física real ni integración temporal continua. La pose del robot se define en cada iteración mediante el vector discreto de tres estados:
 \begin{equation}
     \mathbf{x}_t = [x_{t}, y_{t}, \theta_t]^T \in \mathbb{Z}^2 \times \{0, 90^\circ, 180^\circ, 270^\circ\}
