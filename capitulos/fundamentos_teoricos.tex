@@ -1,0 +1,171 @@
+\chapter{Fundamentos teóricos}
+En este capítulo se presentan los fundamentos teóricos necesarios para comprender el desarrollo metodológico y la experimentación de este trabajo de fin de máster. En primer lugar, se expone el marco matemático del Aprendizaje por Refuerzo (RL) clásico, introduciendo la formulación de los Procesos de Decisión de Markov (MDP) y sus ecuaciones fundamentales de Bellman. Posteriormente, se detalla el Aprendizaje por Refuerzo Profundo (DRL) como una extensión para resolver espacios de alta dimensionalidad mediante redes neuronales artificiales, describiendo sus arquitecturas y algoritmos más destacados en la literatura. A continuación, se describen los modelos cinemáticos planos tradicionales utilizados típicamente para vehículos de guiado automático (AGV), tales como la tracción diferencial y el modelo de bicicleta de Ackermann. Finalmente, se justifica formalmente el modelo de cinemática simplificada discreta paso a paso implementado en este trabajo, detallando cómo la eliminación del tiempo de integración continua optimiza de manera drástica la velocidad de convergencia y la estabilidad del entrenamiento de los agentes reactivos.
+
+\section{Aprendizaje por Refuerzo}
+El Aprendizaje por Refuerzo (RL, por sus siglas en inglés, \textit{Reinforcement Learning}) constituye un área de la inteligencia artificial y del aprendizaje automático enfocado en cómo un agente autónomo puede aprender a tomar decisiones secuenciales óptimas interactuando dinámicamente con un entorno estocástico mediante un proceso de ensayo y error \citep{shakya2023reinforcement}. A diferencia de otros paradigmas de aprendizaje, en RL el agente no es guiado por un conjunto de datos etiquetados de antemano; en su lugar, aprende a asociar sus acciones con recompensas o penalizaciones escalares proporcionadas por el entorno como retroalimentación inmediata, con el fin de reforzar los comportamientos deseables y desincentivar los perjudiciales \citep{murphy2025reinforcement}. Este ciclo interactivo continuo se ilustra de manera simplificada en la Figura~\ref{fig:v0_rl_esquema}, donde se muestra la retroalimentación clásica entre las acciones del agente y las respuestas de estado y recompensa del entorno.
+
+\begin{figure}[htbp]
+    \centering
+%    \includegraphics[width=0.55\textwidth]{v0.png}
+    \caption{Ciclo clásico de interacción Agente-Entorno en el marco del Aprendizaje por Refuerzo (RL).}
+    \label{fig:v0_rl_esquema}
+\end{figure}
+
+Matemáticamente, la interacción entre el agente y el entorno en pasos discretos de tiempo $t = 0, 1, 2, \dots$ se formaliza rigurosamente bajo el marco de los Procesos de Decisión de Markov (MDP) \citep{murphy2025reinforcement}. Un MDP se define formalmente como una tupla de cinco elementos $\langle S, A, P, R, \gamma \rangle$, donde \citep{shakya2023reinforcement, murphy2025reinforcement}:
+\begin{itemize}
+    \item $S$ representa el espacio o conjunto de todos los estados posibles del entorno \citep{murphy2025reinforcement}.
+    \item $A$ denota el espacio de acciones disponibles para el agente \citep{murphy2025reinforcement}.
+    \item $P(s_{t+1} \mid s_t, a_t)$ es la función de probabilidad de transición estocástica del estado del sistema, que define la probabilidad de transicionar al estado $s_{t+1}$ dado que el agente ejecutó la acción $a_t$ estando en el estado $s_t$ \citep{shakya2023reinforcement}.
+    \item $R(s_t, a_t, s_{t+1})$ representa la función de recompensa escalar de retroalimentación provista al agente tras realizar una transición \citep{shakya2023reinforcement, murphy2025reinforcement}.
+    \item $\gamma \in [0, 1)$ es el factor de descuento temporal que pondera la ganancia futura, determinando el grado de miopía o visión a largo plazo del agente \citep{murphy2025reinforcement}.
+\end{itemize}
+
+Para un MDP finito, la dinámica conjunta de transición y recompensa del entorno se define mediante la función de distribución de probabilidad conjunta, expresada formalmente como \citep{shakya2023reinforcement}:
+\begin{equation}
+    p(s', r \mid s, a) \doteq \mathbb{P}(S_{t+1} = s', R_{t+1} = r \mid S_t = s, A_t = a)
+\end{equation}
+A partir de esta distribución conjunta, se puede deducir analíticamente la recompensa esperada del paso siguiente para cualquier par estado-acción como \citep{shakya2023reinforcement}:
+\begin{equation}
+    r_{t+1}(s, a) \doteq \mathbb{E}[R_{t+1} \mid S_t = s, A_t = a] = \sum_{r \in \mathbb{R}} r \sum_{s' \in S} p(s', r \mid s, a)
+\end{equation}
+Asimismo, la ganancia o retorno acumulado con descuento futuro a partir de cualquier paso de tiempo $t$, denotado por $G_t$, se define como la suma ponderada de la secuencia de recompensas futuras escalares obtenidas por el agente \citep{shakya2023reinforcement}:
+\begin{equation}
+    G_t \doteq \sum_{k=0}^{\infty} \gamma^k R_{t+k+1}
+\end{equation}
+El retorno $G_t$ cumple una propiedad recursiva fundamental para el desarrollo teórico y la formulación recursiva de los algoritmos de RL, la cual asocia el retorno en el instante actual con el retorno en el instante subsecuente mediante la ecuación \citep{shakya2023reinforcement}:
+\begin{equation}
+    G_t = R_{t+1} + \gamma G_{t+1}
+\end{equation}
+
+El comportamiento del agente se rige por una política $\pi(a_t \mid s_t)$, la cual define una distribución de probabilidad sobre el espacio de acciones dada una observación del estado actual del sistema \citep{murphy2025reinforcement}. El objetivo primordial de cualquier algoritmo de aprendizaje por refuerzo es descubrir una política óptima $\pi^*$ que maximice la ganancia acumulada con descuento futuro o retorno acumulado esperado, definido formalmente como \citep{shakya2023reinforcement}:
+\begin{equation}
+    J(\pi) = \mathbb{E}_{\pi} [G_0] = \mathbb{E}_{\pi} \left[ \sum_{t=0}^{\infty} \gamma^t R_{t+1} \right]
+\end{equation}
+
+Para evaluar la calidad de una política, los algoritmos estiman funciones de valor que miden cuán beneficioso es para el agente estar en un estado particular o ejecutar una acción en dicho estado. La función de valor de estado $V^\pi(s)$ representa el retorno esperado partiendo desde el estado $s$ y siguiendo la política $\pi$ en los pasos subsecuentes \citep{shakya2023reinforcement}:
+\begin{equation}
+    V^\pi(s) = \mathbb{E}_\pi \left[ G_t \;\middle|\; s_t = s \right]
+\end{equation}
+
+Por su parte, la función de valor de acción $Q^\pi(s, a)$ representa el retorno acumulado esperado tras ejecutar la acción $a$ estando en el estado $s$, y seguir posteriormente la política $\pi$ para la toma de decisiones \citep{shakya2023reinforcement}:
+\begin{equation}
+    Q^\pi(s, a) = \mathbb{E}_\pi \left[ G_t \;\middle|\; s_t = s, a_t = a \right]
+\end{equation}
+
+Las funciones de valor cumplen una propiedad recursiva fundamental conocida como la Ecuación de Expectación de Bellman, la cual descompone el valor de un estado como la suma de la recompensa inmediata esperada y el valor descontado de los estados sucesores \citep{murphy2025reinforcement}:
+\begin{equation}
+    V^\pi(s) = \sum_{a \in A} \pi(a \mid s) \sum_{s' \in S} P(s' \mid s, a) \left[ R(s, a, s') + \gamma V^\pi(s') \right]
+\end{equation}
+\begin{equation}
+    Q^\pi(s, a) = \sum_{s' \in S} P(s' \mid s, a) \left[ R(s, a, s') + \gamma \sum_{a' \in A} \pi(a' \mid s') Q^\pi(s', a') \right]
+\end{equation}
+
+De igual forma, las funciones de valor bajo una política óptima satisfacen las Ecuaciones de Optimalidad de Bellman, que introducen el operador de maximización rígida sobre el espacio de acciones \citep{shakya2023reinforcement}:
+\begin{equation}
+    V^*(s) = \max_{a \in A} \left\{ \sum_{s' \in S} P(s' \mid s, a) \left[ R(s, a, s') + \gamma V^*(s') \right] \right\}
+\end{equation}
+\begin{equation}
+    Q^*(s, a) = \sum_{s' \in S} P(s' \mid s, a) \left[ R(s, a, s') + \gamma \max_{a' \in A} Q^*(s', a') \right]
+\end{equation}
+
+Dentro de la literatura de RL, los métodos para aproximar la política óptima se dividen bajo tres taxonomías principales \citep{shakya2023reinforcement, murphy2025reinforcement}:
+\begin{itemize}
+    \item \textbf{Basados en Modelo (Model-based) vs. Libres de Modelo (Model-free):} Los métodos basados en modelo asumen o aprenden una estimación de las probabilidades de transición $P$ y recompensas $R$ del entorno para realizar planeación \citep{shakya2023reinforcement}. En cambio, los métodos libres de modelo no requieren conocer la física o dinámica del entorno, aprendiendo de manera directa a través de las muestras de experiencia recolectadas por ensayo y error \citep{shakya2023reinforcement}.
+    \item \textbf{En-Política (On-policy) vs. Fuera-de-Política (Off-policy):} Los métodos on-policy evalúan e incrementan de manera asíncrona la misma política utilizada para recolectar datos en la simulación \citep{murphy2025reinforcement}. Por el contrario, los esquemas off-policy evalúan y optimizan una política objetivo independiente del comportamiento o la política exploratoria empleada para muestrear las transiciones, permitiendo reutilizar datos históricos de transiciones previas \citep{shakya2023reinforcement}.
+    \item \textbf{Basados en Valor (Value-based) vs. Basados en Gradiente de Política (Policy-based):} Los esquemas basados en valor se enfocan en aproximar la función Q óptima para derivar implícitamente una política de toma de decisiones codiciosa \citep{murphy2025reinforcement}. Los enfoques basados en gradiente de política optimizan de forma directa los parámetros de una red de política $\pi_\theta(a \mid s)$ mediante gradiente de política para maximizar los retornos acumulados de la ruta sin requerir tablas de valor explícitas \citep{shakya2023reinforcement}.
+\end{itemize}
+
+Cuando los MDPs presentan espacios de estados continuos o de dimensiones gigantescas, la representación tabular convencional de valores se vuelve inviable debido a limitaciones de memoria computacional, un problema conocido como la maldición de la dimensionalidad \citep{shakya2023reinforcement}. Para resolver este cuello de botella técnico, surge el \textbf{Aprendizaje por Refuerzo Profundo (DRL)}, que fusiona el marco de decisión estocástico de RL con el poder de extracción de características jerárquicas de las redes neuronales profundas.
+
+\section{Aprendizaje por Refuerzo Profundo}
+El Aprendizaje por Refuerzo Profundo (DRL, por sus siglas en inglés, \textit{Deep Reinforcement Learning}) revoluciona el campo del control y la navegación autónoma al incorporar Redes Neuronales Profundas (DNN) como aproximadores de funciones no lineales de alta fidelidad para representar políticas, funciones de valor o modelos de transición \citep{shakya2023reinforcement}. Al prescindir de la selección manual de características (\textit{hand-crafted features}) de baja dimensionalidad, las DNNs permiten al agente procesar directamente observaciones crudas y multimodales de alta dimensionalidad (tales como lecturas de LiDAR o imágenes de cámaras frontales) y mapearlas de extremo a extremo a decisiones óptimas de control \citep{hu2020deep}.
+
+\subsection{Redes Neuronales Artificiales como Aproximadores de Funciones}
+Una red neuronal artificial es una estructura jerárquica de procesamiento matemático que consta de múltiples capas interconectadas de neuronas o unidades de cómputo \citep{shakya2023reinforcement}. El tipo de red más representativo y utilizado como bloque base en DRL es el Perceptrón Multicapa o Red Totalmente Conectada (MLP, por sus siglas en inglés, \textit{Multi-Layer Perceptron}) \citep{ge2024deep}. Un MLP típico se compone de una capa de entrada que recibe las observaciones del entorno, una o más capas ocultas intermedias responsables de la extracción progresiva de características, y una capa de salida que emite las predicciones o distribuciones de probabilidad de acciones \citep{hu2020deep}.
+
+Cada neurona de una capa oculta ejecuta una suma ponderada de sus entradas, le asocia un parámetro constante de sesgo (\textit{bias}) e introduce no linealidad mediante una función de activación no lineal \citep{shakya2023reinforcement}:
+\begin{equation}
+    h_j = \sigma\left( \sum_{i} w_{ji} x_i + b_j \right)
+\end{equation}
+Donde $x_i$ son las señales de entrada, $w_{ji}$ representa el peso sinóptico de la conexión, $b_j$ es el sesgo y $\sigma(\cdot)$ es la función de activación. Las funciones de activación más comunes en el campo del DRL para introducir no linealidad en el proceso de optimización son \citep{shakya2023reinforcement}:
+\begin{itemize}
+    \item \textbf{ReLU (Rectified Linear Unit):} Definida como $\sigma(x) = \max(0, x)$, es la más utilizada en capas ocultas intermedias debido a su simplicidad computacional y su capacidad para mitigar el desvanecimiento de gradientes.
+    \item \textbf{Tanh (Tangente Hiperbólica):} Escala las salidas al intervalo $[-1, 1]$, siendo útil cuando las variables del estado o los rangos de las acciones requieren valores simétricos bidireccionales alrededor de cero.
+    \item \textbf{Sigmoid:} Comprime las señales al de rango $[0, 1]$, empleada típicamente en distribuciones probabilísticas o compresión de factores de ganancia.
+\end{itemize}
+
+\subsection{Taxonomía y Algoritmos Típicos de DRL}
+En función de qué componente sea aproximado por la red neuronal profunda, los algoritmos de DRL se dividen de manera clásica en dos grandes categorías, junto con arquitecturas híbridas avanzadas \citep{shakya2023reinforcement}:
+
+\begin{itemize}
+    \item \textbf{Algoritmos Basados en Valor (Value-based Methods):} Aproximan la función de valor de acción óptima $Q^*(s, a)$ mediante una red neuronal parametrizada por pesos $\theta$, denotada como $Q_\theta(s, a)$ \citep{shakya2023reinforcement}.
+    \begin{itemize}
+        \item \textit{DQN (Deep Q-Network):} Incorpora dos mecanismos cruciales de estabilidad para romper la correlación temporal de las muestras y estabilizar el entrenamiento: el buffer de replay de experiencia (Experience Replay Buffer) y una red Q objetivo (Target Network) congelada temporalmente para estabilizar los objetivos de actualización de Bellman \citep{hu2020deep}.
+        \item \textit{Double DQN (DDQN):} Desacopla la selección de la mejor acción de su respectiva evaluación utilizando dos conjuntos distintos de pesos de red, mitigando con éxito el sesgo de sobreestimación característico del DQN estándar \citep{shakya2023reinforcement}.
+        \item \textit{Dueling DQN:} Modifica la arquitectura de la red para de manera separada estimar la función de valor de estado $V(s)$ y la ventaja de acción $A(s, a)$, mejorando la precisión en estados donde muchas acciones tienen similar valor esperado \citep{shakya2023reinforcement}.
+    \end{itemize}
+    \item \textbf{Algoritmos Basados en Política y Actor-Crítico (Actor-Critic Methods):} Optimizan de forma directa la política mediante gradientes y resuelven el problema de la alta varianza mediante el uso coordinado de dos aproximadores de red \citep{shakya2023reinforcement}. El \textbf{Actor} representa la política $\pi_\theta(a \mid s)$ y se encarga de seleccionar acciones, mientras que el \textbf{Crítico} aproxima la función de valor $V_\phi(s)$ o $Q_\phi(s, a)$ y evalúa las decisiones tomadas por el actor \citep{sivashangaran2023deep}.
+    \begin{itemize}
+        \item \textit{DDPG (Deep Deterministic Policy Gradient):} Algoritmo off-policy que adapta el concepto de DQN al control de espacios de acciones continuos y de alta dimensionalidad, emitiendo comandos de actuación deterministas \citep{sivashangaran2023deep}.
+        \item \textit{TD3 (Twin Delayed DDPG):} Extiende DDPG introduciendo críticos gemelos minimizados para combatir la sobreestimación del valor Q, actualizando retardadamente la red del actor y suavizando las acciones objetivo con ruido de exploración regularizado \citep{sivashangaran2023deep}.
+        \item \textit{SAC (Soft Actor-Critic):} Algoritmo off-policy fundamentado en el Aprendizaje por Refuerzo de Máxima Entropía \citep{xue2022using}. SAC optimiza de manera coordinada el retorno acumulado esperado y la entropía de la política, lo que incentiva de manera implícita una exploración sumamente agresiva e impide que la política colapse prematuramente en mínimos locales subóptimas \citep{xue2022using, sivashangaran2023deep}.
+        \item \textit{PPO (Proximal Policy Optimization):} Algoritmo on-policy que destaca por su extraordinaria estabilidad matemática \citep{ge2024deep}. PPO implementa una función de pérdida sustituta recortada (\textit{clipped surrogate objective}) que limita de forma estricta la magnitud de los cambios en la actualización de la política entre iteraciones sucesivas, evitando colapsos catastróficos de aprendizaje sin requerir la complejidad computacional de las restricciones de segundo orden \citep{ge2024deep}.
+    \end{itemize}
+\end{itemize}
+
+\section{Cinemática Típica de un AGV}
+El diseño y despliegue de de sistemas de navegación autónoma reactiva exige comprender el comportamiento mecánico y cinemático de los Vehículos de Guiado Automático (AGV) que operan en entornos industriales y almacenes logísticos estructurados \citep{ye2023toward}. En el plano bidimensional continuo $XY$, la pose de un robot móvil se define comúnmente mediante el vector tridimensional de estado $\mathbf{x} = [x, y, \psi]^T$, donde $(x, y)$ representan las coordenadas cartesianas del centro de masa, y $\psi$ es el ángulo de rumbo u orientación angular con respecto al marco de referencia de la inercia global \citep{sivashangaran2023deep}.
+
+En la robótica terrestre, las dos configuraciones cinemáticas continuas más representativas y estudiadas en la literatura científica son:
+
+\subsection{Modelo de Tracción Diferencial}
+Este modelo cinemático se aplica a AGVs planos que constan de dos ruedas motrices coaxiales independientes controladas por motores individuales de velocidad, junto con ruedas locas pasivas (\textit{casters}) delanteras y traseras para conservar el balance mecánico de la plataforma \citep{perez2022navigation}. La cinemática del robot diferencial continuo se define mediante un modelo no holonómico de rodadura pura sin deslizamiento lateral, cuyas ecuaciones diferenciales de movimiento responden a la velocidad lineal instantánea longitudinal $v(t)$ y a la velocidad angular del chasis $\omega(t)$ \citep{perez2022navigation}:
+\begin{equation}
+    \dot{x}(t) = v(t) \cos(\psi(t))
+\end{equation}
+\begin{equation}
+    \dot{y}(t) = v(t) \sin(\psi(t))
+\end{equation}
+\begin{equation}
+    \dot{\psi}(t) = \omega(t)
+\end{equation}
+Sujeto a la restricción no holonómica de no deslizamiento lateral:
+\begin{equation}
+    \dot{x}(t) \sin(\psi(t)) - \dot{y}(t) \cos(\psi(t)) = 0
+\end{equation}
+
+\subsection{Modelo de Dirección de Ackermann (Modelo de Bicicleta)}
+El modelo de Ackermann es típico de vehículos industriales guiados o automóviles autónomos que orientan mecánicamente su eje directriz delantero \citep{sivashangaran2023deep}. Para simplificar el análisis y optimizar la velocidad de cómputo en el controlador del simulador, la cinemática se modela rigurosamente utilizando el modelo de bicicleta (\textit{kinematic bicycle model}), agrupando las ruedas de cada eje en un solo punto equivalente situado en el centro de los ejes delantero y trasero \citep{sivashangaran2023deep}. Las ecuaciones cinemáticas de actualización se definen por:
+\begin{equation}
+    \dot{x}(t) = v(t) \cos(\psi(t) + \beta(t))
+\end{equation}
+\begin{equation}
+    \dot{y}(t) = v(t) \sin(\psi(t) + \beta(t))
+\end{equation}
+\begin{equation}
+    \dot{\psi}(t) = \frac{v(t)}{l_r} \sin(\beta(t))
+\end{equation}
+Con el ángulo de deslizamiento del centro de masa $\beta(t)$ definido por:
+\begin{equation}
+    \beta(t) = \tan^{-1}\left( \frac{l_r}{l_f + l_r} \tan(\delta(t)) \right)
+\end{equation}
+Donde $l_f$ y $l_r$ representan las distancias desde el centro de masa del AGV hacia los ejes delantero y trasero respectivamente, $\delta(t)$ representa el ángulo de dirección de la rueda delantera de Ackermann, y $v(t)$ es la velocidad longitudinal del vehículo directriz \citep{sivashangaran2023deep}.
+
+\begin{figure}[htbp]
+    \centering
+    \framebox[12cm]{\vbox to 5.5cm{\vfill \centering [Espacio reservado para el esquema cinemático diferencial y Ackermann del AGV] \vfill}}
+    \caption{Esquema cinemático clásico planar de un robot móvil (vista superior) para modelado físico continuo.}
+    \label{fig:cinematica_tipica_agv_esqueleto}
+\end{figure}
+
+\section{Cinemática Utilizada}
+A diferencia de los modelos cinemáticos continuos tradicionales basados en ecuaciones diferenciales acopladas y tiempos de integración infinitesimales, la presente tesis de maestría adopta y fundamenta analíticamente una \textbf{cinemática simplificada y puramente discreta de paso de iteración}. En este modelo de simulación interactiva, el concepto clásico de velocidad física continua $v(t)$, aceleración lineal $a(t)$ o paso de tiempo infinitesimal diferencial $\Delta t$ desaparece por completo \citep{robot.txt}. El tiempo del sistema se modela estrictamente como una sucesión discreta de iteraciones o pasos de simulación del entorno de aprendizaje $t \to t+1$.
+
+La justificación teórica y práctica de este diseño metodológico simplificado responde a tres pilares esenciales:
+\begin{enumerate}
+    \item \textbf{Aceleración Exponencial del Aprendizaje (Convergencia de DRL):} La simulación e integración de físicas continuas acopladas requiere de un cómputo masivo que ralentiza de forma severa el bucle de simulación, incrementando los tiempos de entrenamiento a varios días o semanas en CPU/GPU \citep{sivashangaran2023deep}. Al discretizar y unificar cada movimiento como una transición rígida unitaria (un paso de celda por iteración), el espacio de búsqueda del optimizador de DRL disminuye drásticamente, lo cual acelera la convergencia de las políticas reactivas en una fracción del tiempo requerido por métodos continuos tradicionales \citep{xue2022using}.
+    \item \textbf{Estabilidad Absoluta y Evasión de Derivas Numéricas:} En escenarios industriales dinámicos con pasillos sumamente estrechos y curvas ortogonales, los modelos continuos con inercia rotacional y fuerzas de tracción reales son propensos a experimentar deslizamientos o derivas acumuladas debido al ruido de los motores. Estas imprecisiones físicas introducen inestabilidad en la actualización de las redes Q \citep{xue2022using}. El modelo discreto garantiza transiciones cinemáticas perfectas celda por celda sin inercia mecánica, facilitando al agente el aprendizaje geométrico de rutas colisión-free en rejillas regulares de ocupación (\textit{GridMap}) \citep{robot.txt}.
+    \item \textbf{Consistencia y unificación con la Rejilla de Ocupación:} Al operar el AGV sobre un entorno discretizado por cuadrículas, la pose del robot se adapta naturalmente al espacio entero $\mathbb{Z}^2$. De esta manera, el procesamiento local de las distancias radiales del sensor LiDAR (\texttt{GridLidar}) y la navegación relativa hacia el objetivo se evalúan de forma unificada paso a paso, eliminando la necesidad de fusionar mecánicas continuas de tracción diferencial con mallas de celdas estáticas discretas \citep{grid_training_19.txt}.
+\end{enumerate}
+
+Este marco teórico de cinemática discreta paso a paso constituye la base para formular matemáticamente las transiciones específicas de movimiento de los robots implementados en este trabajo (\texttt{GridRobot} y \texttt{GridRobotNotTurning}), cuyas ecuaciones discretas de transición de pose y espacios de acciones unificados de cardinalidad $|A|=3$ y $|A|=4$ se desarrollarán rigurosamente en el Capítulo~4 (Metodología).
