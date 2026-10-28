@@ -1,0 +1,192 @@
+\chapter{Detalles de implementación}\label{apendice:implementacion}
+
+Este apéndice recoge los detalles de implementación del sistema de
+entrenamiento que no se consideraron parte de la contribución
+metodológica del Capítulo~\ref{cap:diseno-arquitectura} pero que
+condicionan la reproducibilidad de los resultados y pueden resultar
+útiles para quien continúe el trabajo. Se describen el manejador de
+interrupciones y los mecanismos de recuperación del entrenamiento, el
+muestreo del \textit{buffer} de repetición en PPO, el formato de los
+puntos de control, la estructura de \textit{logging} y la convención de
+nomenclatura de los experimentos.
+
+\section{Gestión de interrupciones del entrenamiento}\label{apendice:interrupciones}
+El bucle de entrenamiento se envuelve en el gestor de contexto
+\texttt{InterruptHandler}, que redirige dos señales del sistema
+operativo:
+
+\begin{itemize}
+    \item \texttt{SIGINT} (\textbf{Ctrl+C}): el manejador guarda un
+    \textit{checkpoint} de emergencia con el estado del agente, cierra
+    el \textit{writer} de \texttt{TensorBoard} y termina el proceso de
+    manera ordenada. El fichero de salida se nombra con marca de tiempo
+    (\texttt{agent\_interrupted\_YYYY\_MM\_DD\_HH\_MM\_SS.pth}) para no
+    sobrescribir \textit{checkpoints} anteriores. Además del estado de
+    la red, se registra el paso global, el valor actual de
+    $\varepsilon$ (si el agente lo expone) y el tamaño del
+    \textit{buffer}.
+
+    \item \texttt{SIGQUIT} (\textbf{Ctrl+\textbackslash}): la señal es
+    POSIX; en Windows la constante \texttt{SIGQUIT} no está definida y
+    el gestor lo detecta y evita registrar el manejador. En sistemas
+    POSIX, la señal lanza un \textit{soft reset} que vacía el
+    \textit{buffer} de experiencia y restaura un valor alto de
+    exploración ($\varepsilon \leftarrow 0{,}8$), diseñado para
+    desatascar episodios en los que la política se ha estabilizado en
+    un comportamiento improductivo. Esta funcionalidad se incluyó
+    pensando en sesiones de depuración interactivas sobre Linux; dado
+    que el equipo de desarrollo principal es Windows, no ha formado
+    parte de los experimentos reportados.
+\end{itemize}
+
+Si durante el entrenamiento se produce una excepción no controlada
+(distinta de \texttt{KeyboardInterrupt}), el gestor registra un
+\textit{checkpoint} de emergencia bajo el prefijo
+\texttt{agent\_error\_} y propaga la excepción. En consecuencia, un
+fallo de software no destruye el progreso acumulado hasta ese momento.
+
+\section{Parada temprana por paciencia}\label{apendice:early_stopping}
+El módulo \texttt{EarlyStopping} del paquete de entrenamiento
+monitoriza una métrica escalar (típicamente la recompensa acumulada
+media de los últimos episodios) y detiene el entrenamiento cuando la
+métrica no mejora durante \texttt{patience} episodios consecutivos. Al
+registrar la mejor puntuación, se guarda un \textit{checkpoint}
+dedicado; de este modo, al terminar el entrenamiento, el usuario
+dispone del último modelo entrenado y del modelo con mejor rendimiento
+observado durante el proceso. Esta utilidad no se ha activado en los
+experimentos del Capítulo~\ref{cap:resultados}, cuyo horizonte estaba
+fijado a priori en $40\,000$ episodios.
+
+\section{Muestreo del \textit{buffer} de experiencia en PPO}\label{apendice:replay_buffer}
+La particularidad del PPO empleado consiste en reutilizar el
+\textit{buffer} de experiencia típico de los algoritmos
+\textit{off-policy}. El flujo exacto es el siguiente:
+
+\begin{enumerate}
+    \item Durante un episodio, el agente guarda en una memoria
+    temporal las tuplas $(s_t, a_t, r_t, s_{t+1}, d_t, \log\pi_\theta(a_t\mid s_t), V_\phi(s_t))$
+    y una copia de la máscara de acciones válidas (si está habilitada).
+    \item Al terminar el episodio, se calculan las ventajas $\hat{A}_t$
+    y los retornos $R_t$ mediante GAE con las recompensas y los valores
+    del episodio recién concluido.
+    \item Cada tupla, extendida con $\hat{A}_t$ y $R_t$, se añade a un
+    \textit{buffer} circular de capacidad $10^5$.
+    \item Si el \textit{buffer} contiene al menos un mini-lote (tamaño
+    $64$), se muestrea un mini-lote aleatorio y se ejecuta un paso de
+    optimización del objetivo PPO definido en la
+    Sección~\ref{sec:redes}.
+\end{enumerate}
+
+En consecuencia, la actualización utiliza transiciones generadas por
+políticas antiguas. El objetivo recortado de PPO atenúa, pero no
+elimina, los efectos de esta discrepancia: el cociente de
+probabilidades $\rho_t(\theta)$ puede alejarse rápidamente del rango
+$[1-\varepsilon, 1+\varepsilon]$, lo que satura la pérdida y limita el
+tamaño efectivo del paso. Esta limitación se discute en la
+Sección~\ref{sec:discusion}.
+
+\section{Puntos de control y recuperación}\label{apendice:checkpoints}
+Cada agente expone los métodos \texttt{save(path)} y
+\texttt{load(path)}, que serializan y restauran el estado completo
+(red o redes, parámetros del optimizador, paso global y, en el caso
+de DQN, el valor actual de $\varepsilon$). El directorio por defecto
+para los \textit{checkpoints} de un experimento número \texttt{N} es
+\texttt{checkpoints/Test/N/<nombre\_agente>/}, con tres tipos de
+fichero:
+
+\begin{itemize}
+    \item \texttt{final.pth}: estado del agente al terminar el bucle.
+    \item \texttt{best.pth} (si se activa la parada temprana): estado
+    del agente con mejor métrica observada.
+    \item \texttt{agent\_interrupted\_*.pth} o
+    \texttt{agent\_error\_*.pth}: \textit{checkpoints} de emergencia
+    guardados por el \texttt{InterruptHandler}
+    (Sección~\ref{apendice:interrupciones}).
+\end{itemize}
+
+El script \texttt{scripts/eval\_agent.py} reconstruye el entorno a
+partir del fichero \texttt{config.json} escrito al inicio de la
+ejecución (o, en su defecto, a partir de las dimensiones del
+\textit{checkpoint}) y aplica el enmascarado de acciones si la
+configuración original lo indicaba.
+
+\section{Métricas registradas en TensorBoard}\label{apendice:tensorboard}
+El bucle de entrenamiento utiliza un \texttt{SummaryWriter} por agente
+y registra, por episodio, el conjunto homogéneo de métricas del
+Cuadro~\ref{tab:tensorboard_tags}. El uso de las mismas etiquetas para
+DQN y PPO permite comparar entre familias algorítmicas con los
+\textit{scripts} auxiliares \texttt{scripts/plot\_runs.py} y
+\texttt{scripts/compare\_runs.py}. La configuración textual del agente
+y de la función de recompensa se guarda como \textit{text summaries}
+bajo \texttt{Config/Agent} y \texttt{Config/Reward} al inicio de la
+ejecución.
+
+\begin{table}[htbp]
+    \centering
+    \caption{Métricas registradas por el \texttt{BaseTrainer} en cada
+    episodio de entrenamiento.}
+    \label{tab:tensorboard_tags}
+    \begin{tabular}{ll}
+        \toprule
+        \textbf{Etiqueta} & \textbf{Significado} \\
+        \midrule
+        \texttt{Reward/Total}             & Recompensa acumulada del episodio. \\
+        \texttt{Reward/Avg}               & Recompensa media por paso. \\
+        \texttt{Success/Episode}          & $1$ si el agente alcanzó la meta, $0$ en otro caso. \\
+        \texttt{Success/Map/<mapa>}       & Serie específica por mapa de la métrica anterior. \\
+        \texttt{Done/Hit Obstacle}        & $1$ si el episodio terminó en colisión. \\
+        \texttt{Done/Max Steps Reached}   & $1$ si se agotó el horizonte temporal. \\
+        \texttt{Steps/Episode}            & Número de pasos del episodio. \\
+        \texttt{Steps/Min/Episode}        & Camino mínimo (BFS) desde el inicio hasta la meta. \\
+        \texttt{Steps/Ratio/Episode}      & Cociente entre los dos anteriores. \\
+        \texttt{Distances/Start,End}      & Distancia euclídea inicial y final a la meta. \\
+        \texttt{Loss/Episode}             & Pérdida al final del episodio. \\
+        \texttt{Curriculum/Stage}         & Etapa activa del currículo (si procede). \\
+        \texttt{Agent/*}                  & Métricas específicas del agente (p.\,ej.\ entropía). \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+\section{Convención de nomenclatura de experimentos}\label{apendice:nomenclatura}
+Cada experimento se identifica por un número entero $N$ y se materializa
+en tres artefactos paralelos:
+\begin{itemize}
+    \item El \textit{script} de entrenamiento
+    \texttt{train/grid\_training\_NN.py}, que contiene la configuración
+    específica del experimento. Los \textit{scripts} de experimentos
+    anteriores se conservan sin modificar como registro histórico; cuando
+    la API cambia, el experimento siguiente se escribe en un fichero
+    nuevo con el siguiente número.
+    \item El directorio de logs
+    \texttt{runs/Test/NN/<nombre\_agente>/}, con los eventos de
+    \texttt{TensorBoard} y el fichero \texttt{config.json} que
+    serializa los argumentos de la línea de comandos, la configuración
+    de la función de recompensa, los mapas utilizados y la
+    configuración del LiDAR.
+    \item El directorio de \textit{checkpoints}
+    \texttt{checkpoints/Test/NN/<nombre\_agente>/}, que contiene los
+    pesos entrenados.
+\end{itemize}
+
+Esta correspondencia uno a uno entre número de experimento, código,
+logs y pesos permite reproducir un resultado concreto a partir del
+\texttt{config.json} y del \textit{checkpoint} \texttt{final.pth} del
+mismo directorio.
+
+\section{Entorno de ejecución y dependencias}\label{apendice:entorno}
+El código se ha desarrollado en Python 3.11 y se instala en modo
+editable con \texttt{pip install -e .} desde la raíz del repositorio.
+Las dependencias principales son \texttt{gymnasium} (API del entorno),
+\texttt{torch} (redes neuronales y aceleración GPU),
+\texttt{tensorboard} (\textit{logging}),
+\texttt{torchrl} (\texttt{EnvBase} auxiliar), \texttt{numpy},
+\texttt{pygame} (visualización) y \texttt{tqdm} (barra de progreso). La
+selección del dispositivo de cómputo se realiza automáticamente al
+inicio de cada \textit{script} con el patrón estándar
+\texttt{torch.device("cuda" if torch.cuda.is\_available() else "mps" if torch.backends.mps.is\_available() else "cpu")},
+lo que permite ejecutar los mismos \textit{scripts} en GPU NVIDIA, en
+Apple Silicon y en CPU sin modificaciones. La suite de pruebas
+unitarias (\texttt{pytest}, aproximadamente $113$ tests sobre mapa,
+robot, entorno, recompensas, cabecera, entrenamiento y currículo) se
+ejecuta en unos $15$ segundos y cubre los invariantes básicos de los
+componentes del simulador.

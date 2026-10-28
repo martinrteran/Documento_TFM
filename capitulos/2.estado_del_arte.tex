@@ -1,25 +1,274 @@
-\chapter{Estado del Arte}
+\chapter{Estado del arte}\label{chap:estado-arte}
 
+En este capítulo se revisan los antecedentes directamente relacionados con el
+problema abordado en la memoria: la navegación reactiva de un robot móvil
+tipo AGV en un entorno de rejilla con obstáculos estáticos y acciones
+discretas, utilizando aprendizaje por refuerzo profundo. La revisión se
+organiza en cinco bloques. El primero sitúa la navegación móvil y precisa
+qué se entiende por navegación sin mapa previo. El segundo repasa los
+métodos clásicos de planificación y los enfoques aprendidos que los
+sustituyen o los complementan. El tercero resume las familias de algoritmos
+de aprendizaje por refuerzo profundo más empleadas en navegación. El cuarto
+analiza las implicaciones de la observabilidad parcial y los diseños de
+observación local. El quinto trata el diseño de la recompensa, el
+aprendizaje por currículo y la navegación segura. El capítulo cierra con
+una síntesis que delimita la contribución de este trabajo frente a la
+literatura revisada.
 
-\section{Algoritmos de Aprendizaje por Refuerzo para Control Reactivo}
-El desarrollo del DRL aplicado al guiado de robots autónomos se divide primordialmente entre algoritmos de optimización de gradiente de política directos \textit{on-policy} y algoritmos basados en valor de acción de tipo crítico-actor \textit{off-policy} \citep{perez2022navigation}. Entre los enfoques \textit{on-policy}, el algoritmo de Optimización de Política Próxima (PPO, por sus siglas en inglés) destaca por su extraordinaria estabilidad numérica y robustez ante el ajuste de hiperparámetros \citep{RL_Algorithms_Brief.pdf}. PPO previene las actualizaciones de política excesivamente destructivas mediante una función de pérdida sustituta con restricciones por recorte del ratio de probabilidad de la acción, limitando la divergencia de Kullback-Leibler entre la política vieja y la nueva \citep{2507.05251v1.pdf}:
-\begin{equation}
-    L^{CLIP}(\theta) = \hat{\mathbb{E}}_t \left[ \min(r_t(\theta)\hat{A}_t, \text{clip}(r_t(\theta), 1-\epsilon, 1+\epsilon)\hat{A}_t) \right]
-\end{equation}
-No obstante, dado que PPO es \textit{on-policy}, padece de una baja eficiencia en el uso de muestras, requiriendo millones de interacciones directas con el entorno de simulación para converger hacia una política robusta \citep{state_art_RL.pdf}.
+\section{Navegación móvil y planteamiento del problema}
+La navegación de un robot móvil comprende la selección de los movimientos
+que permiten alcanzar un destino sin colisionar con los elementos del
+entorno. Los sistemas basados en mapas separan habitualmente el problema en
+dos niveles: un planificador global que utiliza una representación del
+espacio para calcular una ruta hasta la meta y un controlador local que
+adapta el movimiento a la información sensorial inmediata. En aplicaciones
+intralogísticas, la planificación de rutas de varios AGV debe considerar
+además la asignación de recursos y la gestión de conflictos entre
+vehículos; se trata de un problema de coordinación multiagente, distinto
+del control reactivo de un único robot frente a obstáculos
+\citep{hu2020deep,ye2023toward}.
 
-Para solventar la ineficiencia de muestreo, se han extendido aproximaciones \textit{off-policy} de crítico-actor continuas como DDPG y su variante de críticos retrasados gemelos TD3 \citep{sivashangaran2023deep}. Adicionalmente, el algoritmo Soft Actor-Critic (SAC) destaca como un método altamente eficiente basado en la maximización de la entropía máxima, el cual optimiza de manera conjunta el retorno esperado y el grado de aleatoriedad de la política \citep{DRL_AGV_Exploration.pdf}. Esta adición fomenta una exploración muy agresiva y previene que el actor converja prematuramente a mínimos locales estáticos o cuellos de botella subóptimos en la navegación \citep{applsci-12-03153-v2.pdf}:
-\begin{equation}
-    J(\pi) = \sum_{t=0}^{T} \mathbb{E}_{(s_t, a_t) \sim \rho_\pi} \left[ R(s_t, a_t) + \alpha \mathcal{H}(\pi(\cdot | s_t)) \right]
-\end{equation}
-En entornos logísticos de rejilla donde las acciones son intrínsecamente discretas (avanzar, girar), las redes Q profundas (DQN) de tipo \textit{off-policy} y sus extensiones de doble estimación (Double DQN) resultan óptimas por su simplicidad de convergencia teórica y por permitir el reuso masivo de muestras previas del buffer de replay \citep{hu2020deep}.
+El término \textit{map-less} (navegación sin mapa previo) describe
+el tipo de información que recibe el controlador en tiempo de ejecución, no
+una propiedad general del sistema. Un robot \textit{map-less} toma
+decisiones a partir de observaciones locales (típicamente lecturas de un
+sensor de rango como un LiDAR y la posición relativa del objetivo) sin
+disponer de un mapa global del entorno en la entrada de la política. Esto
+no implica que el sistema prescinda de localización, de percepción o del
+cuidado en el diseño del entorno de entrenamiento, ni que la política
+aprendida sea equivalente al pipeline clásico de SLAM más planificación
+global. Los trabajos sobre exploración autónoma de vehículos terrestres y
+sobre navegación intralogística ilustran distintas formulaciones de este
+enfoque, con diferencias importantes en los sensores, la dinámica, el
+espacio de acciones y los simuladores empleados
+\citep{sivashangaran2023deep,xue2022using,guo2025map}.
 
-\section{Percepción Sensorial Multimodal y Observabilidad Parcial}
-La navegación reactiva sin mapas se enmarca típicamente bajo la formulación matemática de un Proceso de Decisión de Markov Parcialmente Observable (POMDP), dado que el AGV solo dispone de lecturas de sensores de rango locales y carece de la posición global de los obstáculos en un plano cartesiano unificado \citep{md2024novel}. El sensado local con LiDARs discretos o continuos presenta problemas críticos de oclusión geométrica (puntos ciegos detrás de paredes) y ruidos sensoriales de rebote estocástico \citep{sivashangaran2023autovrl}. Para atenuar la dimensionalidad de las observaciones crudas de LiDAR (que pueden llegar a cientos de rayos densos), la literatura propone técnicas de discretización modular o compresión mediante autoencoders geométricos robustos (GDAE) \citep{article_1743243135.pdf}.
+\section{Métodos clásicos de navegación y enfoques aprendidos}
+Los planificadores globales basados en grafos (como $A^*$, Dijkstra o $D^*$)
+o en muestreo del espacio libre (como PGM o RRT) proporcionan rutas
+sistemáticas cuando se dispone de un mapa adecuado y se admite el coste de
+construirlo y mantenerlo. Su rendimiento depende de la representación del
+entorno y del coste de replanificar cuando esa representación cambia. En
+entornos poco estructurados o con alta variabilidad, el replanteamiento
+puede ser costoso y la calidad del resultado degrada rápidamente con el
+ruido sensorial \citep{sivashangaran2023deep}.
 
-Por otra parte, la fusión de información sensorial visual profunda con datos de rango LiDAR se consolida mediante el uso de redes convolucionales preentrenadas (como MobileNetV3) en esquemas autoasociativos estáticos para codificar el entorno visual en un vector de baja dimensionalidad espacial \citep{2507.05251v1.pdf, applsci-12-03153-v2.pdf}. No obstante, la pérdida de observabilidad temporal en el POMDP requiere el uso de memorias recurrentes profundas, tales como celdas LSTM o arquitecturas autorregresivas basadas en Transformers de decisión (Decision Transformers) \citep{ge2024deep, fnbot-18-1338189.pdf}. Estos componentes de memoria temporal permiten procesar una ventana histórica de observaciones y acciones previas $h_t = (o_1, a_1, \dots, o_t)$, extrayendo el ``estado de creencia'' estocástico implícito (\textit{belief state}) indispensable para desambiguar estados geométricamente idénticos y evadir de forma activa obstáculos dinámicos u oclusiones severas \citep{md2024novel, state_art_RL.pdf}.
+Los métodos reactivos calculan la acción directamente a partir de la
+información local, sin construir una ruta explícita. Los campos
+potenciales artificiales (APF) son el ejemplo arquetípico: la meta genera
+una fuerza atractiva y los obstáculos generan fuerzas repulsivas, y el
+robot se mueve siguiendo la fuerza resultante. Son sencillos, rápidos y
+fáciles de ajustar, pero en determinadas configuraciones geométricas
+(pasillos simétricos, obstáculos cóncavos, situaciones en las que la fuerza
+atractiva y la repulsiva se compensan) producen puntos de equilibrio en los
+que el robot se detiene antes de alcanzar la meta
+\citep{perez2022navigation}. Las variantes clásicas mitigan este
+comportamiento mediante perturbaciones aleatorias o fuerzas tangenciales,
+pero no lo eliminan.
 
-\section{Aprendizaje por Currículo y Navegación Segura}
-El entrenamiento de un AGV map-less desde cero bajo un esquema tradicional de DRL se enfrenta al cuello de botella de la ``recompensa dispersa'' (\textit{sparse reward}) \citep{ye2023toward}. Si el espacio de estados es grande y la meta es de dimensiones reducidas en comparación con la arena de pruebas, la probabilidad estocástica de que el agente alcance la meta mediante exploración aleatoria pura al inicio del entrenamiento es prácticamente nula, lo que provoca estancamientos en el gradiente de optimización \citep{state_art_RL.pdf}. Para mitigar esto, se ha introducido el Aprendizaje por Currículo Automático (ACL, por sus siglas en inglés) \citep{applsci-12-03153-v2.pdf}.
+A caballo entre ambos enfoques se encuentran los controladores basados en
+redes neuronales ajustadas con algoritmos de inspiración biológica. Pérez
+et al. \citep{perez2022navigation} comparan APF con una red neuronal cuyos
+pesos se optimizan mediante un algoritmo genético sobre mapas de distinta
+dificultad (uno vacío, uno con un obstáculo rectangular y un laberinto). La
+política aprendida supera al controlador APF al reducir la frecuencia con
+que el robot queda atrapado en mínimos locales, aunque a costa de un
+proceso de entrenamiento más laborioso. Este trabajo es relevante porque
+documenta el problema del mínimo local sobre escenarios conceptualmente
+análogos a los que se evalúan en esta tesis.
 
-La metodología propuesta por el algoritmo \textit{NavACL} y su versión extendida con retroalimentación del valor de acción de los críticos, \textit{NavACL-Q}, proponen dinámicamente escenarios de entrenamiento de dificultad adaptativa progresiva \citep{applsci-12-03153-v2.pdf}. NavACL-Q evalúa métricas geométricas de los mapas logísticos (distancia geodésica, holgura del agente y del objetivo ante obstáculos, y el ángulo de rumbo inicial) combinándolas con la estimación de valor Q predicha por la red crítica del agente, para proponer poses iniciales que se sitúen en la frontera del conocimiento actual de la política \citep{xue2022using}. A medida que el AGV incrementa su tasa de éxito local, el currículo de forma automática expande la distancia inicial de navegación y la complejidad de los laberintos. Adicionalmente, el Aprendizaje por Refuerzo Seguro (Safe RL) incorpora la teoría de Optimización de Política con Restricciones (CPO, por sus siglas en inglés), donde la función de costo modela explícitamente el riesgo de colisión catastrófica, asegurando que la política explore el espacio con garantías de seguridad física bajo restricciones de barreras de control \citep{gao2025hierarchical}.
+El aprendizaje por refuerzo propone una tercera vía: optimizar la política
+directamente mediante la interacción con el entorno y una señal escalar de
+recompensa. Al combinarlo con redes neuronales profundas se obtiene DRL,
+que permite trabajar con observaciones de alta dimensión y espacios de
+acción tanto discretos como continuos. Las ventajas potenciales (no
+requiere un modelo analítico del entorno, aprende de muestras y escala a
+observaciones multimodales) vienen acompañadas de desafíos conocidos: la
+alta cantidad de interacciones necesarias para converger, la sensibilidad
+al diseño de la recompensa y a los hiperparámetros, y la dificultad de
+garantizar que la política aprendida generalice a condiciones no vistas
+\citep{shakya2023reinforcement,sivashangaran2023deep}. En consecuencia, una
+comparación experimental entre familias de algoritmos sólo es informativa
+si se detalla el entorno, el presupuesto de interacción y las métricas
+empleadas.
+
+\section{Algoritmos de aprendizaje por refuerzo profundo en navegación}
+Los algoritmos de DRL se clasifican habitualmente según cómo representan la
+política y cómo reutilizan las transiciones recogidas durante la
+interacción \citep{shakya2023reinforcement,murphy2025reinforcement}. En el
+contexto de la navegación de AGV, cuatro familias concentran la mayor
+parte de la literatura relevante.
+
+Los \textbf{métodos basados en valor}, como las redes Q profundas (DQN) y
+sus extensiones Double DQN y Dueling DQN, aproximan la función de valor de
+acción óptima $Q^*(s,a)$ y derivan de ella una política codiciosa. Son
+métodos \textit{off-policy}, por lo que admiten el reuso de transiciones
+almacenadas en un buffer de experiencia, y resultan apropiados cuando el
+espacio de acciones es discreto y relativamente pequeño
+\citep{hu2020deep}. En el ámbito de los AGV, Hu et al. \citep{hu2020deep}
+utilizan DQN para la planificación en tiempo real de un AGV sobre un taller
+flexible, combinando la política aprendida con una regla heurística para
+cubrir los casos excepcionales. Más recientemente, Gao et al.
+\citep{gao2025hierarchical} aplican una variante de Dueling DQN con
+reproducción retrospectiva de experiencia (HER) como política de alto nivel
+en un esquema jerárquico de navegación segura basado en subobjetivos.
+
+Los \textbf{métodos de gradiente de política} optimizan de manera directa
+los parámetros de una política estocástica $\pi_\theta(a\mid s)$. El
+algoritmo de optimización de política próxima (PPO) limita el tamaño
+efectivo de las actualizaciones mediante un objetivo recortado
+(\textit{clipped surrogate objective}), lo que suele traducirse en una
+convergencia más estable que la de métodos de gradiente anteriores sin
+exigir restricciones de segundo orden. PPO es \textit{on-policy}: cada
+conjunto de transiciones se utiliza durante un número acotado de
+actualizaciones y después se descarta. En consecuencia, es menos eficiente
+en el uso de muestras que las alternativas \textit{off-policy}, lo que
+puede ser un inconveniente cuando el simulador es costoso de ejecutar
+\citep{sivashangaran2023deep,ge2024deep}. Esta tensión entre estabilidad y
+eficiencia de muestreo es parte de la motivación para comparar PPO con DQN
+en el presente trabajo.
+
+Los \textbf{métodos actor-crítico off-policy para acciones continuas}
+(DDPG, TD3 y SAC) extienden el esquema actor-crítico al control continuo y
+reutilizan transiciones del buffer. DDPG emite comandos deterministas y
+sufre de inestabilidad y sobreestimación del valor Q; TD3 lo corrige con
+dos críticos gemelos, actualizaciones retardadas del actor y suavizado del
+objetivo. SAC introduce un término de entropía en el objetivo, lo que
+fomenta la exploración y reduce la probabilidad de colapso prematuro en
+mínimos locales \citep{sivashangaran2023deep,xue2022using}. Sivashangaran
+y Eskandarian \citep{sivashangaran2023deep} comparan DDPG, TD3 y SAC en
+exploración de AGV sin mapa previo sobre dos entornos de entrenamiento y
+un tercero de evaluación sin reentrenamiento, con el fin de medir la
+generalización fuera de la distribución de entrenamiento. Estos métodos no
+son parte de la comparación experimental de este trabajo, cuyo espacio de
+acciones es discreto, pero son antecedentes necesarios para contextualizar
+las decisiones de diseño.
+
+Finalmente, los \textbf{enfoques jerárquicos} descomponen la navegación en
+decisiones de distintos niveles. Gao et al. \citep{gao2025hierarchical}
+proponen un marco jerárquico en el que una política de alto nivel genera
+subobjetivos dentro del alcance del sensor y una política de bajo nivel
+basada en Safe RL ejecuta movimientos locales libres de colisión; el
+esquema está pensado para evitar los mínimos locales en entornos interiores.
+La propuesta de este trabajo no es jerárquica, pero el mecanismo de
+reinicio suave que se describe en el capítulo de diseño comparte con los
+métodos jerárquicos la intención de disponer de un recurso específico para
+los episodios en los que la política reactiva se detiene antes de alcanzar
+la meta.
+
+\section{Observación local y observabilidad parcial}
+Cuando el controlador recibe únicamente medidas locales, la observación
+instantánea no identifica de forma unívoca la configuración global del
+entorno. Dos poses del robot con lecturas de LiDAR idénticas, pero
+distintas en el resto del mapa, aparecen como el mismo estado para la
+política. Este tipo de ambigüedad se modela mediante un proceso de decisión
+de Markov parcialmente observable (POMDP), que generaliza al MDP clásico
+distinguiendo entre el estado real $s_t$, no accesible, y la observación
+$o_t$ obtenida mediante un modelo de observación estocástico
+\citep{md2024novel,gao2025hierarchical}. Dado que estimar la distribución
+exacta de creencias es intratable en el caso general, la práctica habitual
+en DRL consiste en construir una observación cuidadosamente diseñada o en
+dotar a la red de memoria.
+
+En navegación map-less, la observación suele combinar lecturas de un
+sensor de rango, variables relativas al objetivo (distancia y rumbo) y, con
+frecuencia, variables cinemáticas o la acción previa. La agrupación angular
+de un LiDAR en sectores reduce drásticamente la dimensión de entrada y
+preserva información suficiente sobre los obstáculos cercanos, aunque
+sacrifica el detalle geométrico fino. Xue et al. \citep{xue2022using}
+utilizan dos LiDAR, una cámara RGB frontal y una fusión multimodal con un
+extractor de características preentrenado para capturar simultáneamente la
+geometría cercana y la posición del objetivo. En el extremo opuesto, Gao
+et al. \citep{gao2025hierarchical} construyen un mapa local de obstáculos
+discretizado en celdas, mientras que Guo et al. \citep{guo2025map}
+describen políticas basadas únicamente en el vector de lecturas de
+distancia y la pose relativa de la meta. La elección depende del coste de
+cómputo, de la riqueza del simulador y de la tarea.
+
+Cuando la ambigüedad persiste, la literatura introduce memoria temporal.
+Las arquitecturas recurrentes (LSTM, GRU) procesan una ventana histórica
+de observaciones y acciones y extraen un estado interno equivalente a un
+estimador aproximado de la creencia \citep{mienye2024recurrent}. En el
+mismo sentido se han propuesto arquitecturas autorregresivas como los
+Decision Transformers, que modelan la secuencia completa de observaciones,
+acciones y retornos \citep{ge2024deep}. Estas extensiones no son
+automáticas: incluir memoria recurrente mejora el rendimiento cuando la
+ambigüedad temporal es la causa principal del fallo, pero no en todos los
+problemas parcialmente observables. En este trabajo, la observación se
+amplía con la acción previa $a_{t-1}$ como forma minimalista de memoria;
+la ampliación a una política recurrente se discute como extensión en el
+capítulo de diseño.
+
+\section{Diseño de recompensa, currículo y seguridad}
+La función de recompensa condiciona de forma directa el comportamiento que
+aprende el agente. Una señal exclusivamente terminal (positiva al llegar a
+la meta, negativa en colisión) resulta demasiado dispersa para tareas de
+horizonte largo en entornos con obstáculos: la probabilidad de alcanzar la
+meta por azar al principio del entrenamiento es muy baja y el gradiente de
+la política se queda sin señal útil. Es habitual, por tanto, añadir
+términos densos que \textit{dirigen} la exploración: un término de
+progreso proporcional a la reducción de la distancia a la meta, un pequeño
+coste por paso que penaliza las rutas excesivamente largas y, cuando la
+seguridad importa, una penalización continua por proximidad a los
+obstáculos. Esquemas de este tipo se emplean en los trabajos revisados
+sobre navegación map-less \citep{gao2025hierarchical,guo2025map,xue2022using}
+y son la base de la función de recompensa compuesta que se propone en el
+capítulo de diseño. La escala relativa de cada término determina el
+compromiso entre eficiencia, seguridad y tasa de éxito, por lo que es
+imprescindible documentar las magnitudes empleadas.
+
+El aprendizaje por currículo modifica la distribución de las tareas de
+entrenamiento, comenzando con escenarios más fáciles y aumentando
+gradualmente la dificultad. En navegación intralogística, Xue et al.
+\citep{xue2022using} proponen \textit{NavACL} y su versión extendida con
+realimentación del crítico, \textit{NavACL-Q}, que seleccionan de forma
+automática las poses iniciales de entrenamiento utilizando métricas
+geométricas (distancia geodésica, holgura ante obstáculos, ángulo relativo
+al objetivo) y el valor Q estimado por el crítico; en sus experimentos, el
+currículo mejora el rendimiento en torno a un 40\,\% respecto al
+entrenamiento con poses aleatorias. En este trabajo no se emplea
+aprendizaje por currículo explícito, pero el mecanismo de reinicio suave
+comparte con él la idea de modular dinámicamente la distribución de
+estados de inicio para desatascar la política.
+
+La navegación segura constituye una línea de investigación propia, con
+objetivos y métodos distintos de añadir una penalización por colisión a la
+recompensa. En Safe RL, el riesgo se modela mediante restricciones
+explícitas (por ejemplo, mediante optimización de política con
+restricciones, CPO) o mediante arquitecturas que combinan la política
+aprendida con una capa de seguridad formal, como barreras de control. En
+este sentido, el esquema jerárquico de Gao et al.
+\citep{gao2025hierarchical} dedica la política de bajo nivel a Safe RL con
+estimación de la congestión del entorno. Por su parte, Md et al.
+\citep{md2024novel} abordan el POMDP del vehículo autónomo con un enfoque
+de aprendizaje por refuerzo continuo (\textit{life-long}) que acumula la
+experiencia de tareas sucesivas sin olvidar las anteriores. En
+consecuencia, una penalización continua por proximidad en la recompensa,
+como la que se propone en este trabajo, debe presentarse como un
+mecanismo para configurar el equilibrio entre seguridad y progreso durante
+el entrenamiento, no como una garantía formal de seguridad.
+
+\section{Síntesis y relación con el trabajo}
+La literatura revisada sitúa este trabajo en la intersección entre control
+reactivo, observación local y aprendizaje por refuerzo profundo. Los
+antecedentes muestran alternativas de planificación clásica y aprendida,
+distintas familias algorítmicas para acciones discretas o continuas,
+diseños de observación con y sin memoria temporal y estrategias para
+mitigar la dificultad de la exploración (currículo automático, esquemas
+jerárquicos, Safe RL). Las conclusiones de cada estudio dependen del
+robot, del simulador, de los sensores y del protocolo experimental
+empleados, por lo que no son directamente intercambiables.
+
+El presente trabajo acota la pregunta a la navegación de un AGV en una
+rejilla bidimensional con obstáculos estáticos y espacio de acciones
+discreto. Sobre esta base, se compara un algoritmo \textit{off-policy}
+basado en valor (DQN) con un algoritmo \textit{on-policy} actor-crítico
+(PPO), se emplea una observación compuesta por lecturas de LiDAR
+sectorizado y variables relativas al objetivo, se adopta una función de
+recompensa compuesta con penalización por proximidad y se incorpora un
+mecanismo heurístico de detección de estancamiento con reinicio suave para
+los episodios bloqueados. La aportación específica se evalúa en los
+escenarios y con las métricas descritos en los capítulos de diseño y de
+resultados; no se extrapolará a navegación física, a obstáculos dinámicos,
+a la coordinación entre varios AGV ni a garantías formales de seguridad
+sin realizar experimentos específicamente diseñados para ello.

@@ -1,85 +1,416 @@
-\chapter{Resultados}
+\chapter{Configuración experimental y resultados}\label{cap:resultados}
 
+En este capítulo se presentan la configuración experimental y los
+resultados obtenidos al entrenar y evaluar los agentes descritos en el
+Capítulo~\ref{cap:diseno-arquitectura}. Primero se detallan los
+escenarios de la rejilla, los hiperparámetros de los algoritmos, el
+entorno de ejecución y el protocolo de evaluación. A continuación se
+presentan los resultados del agente PPO de referencia (test 25),
+seguidos de una serie de estudios complementarios que modifican un único
+elemento del baseline para medir su efecto: aprendizaje por currículo,
+reward geodésico, política recurrente (GRU), alcance del LiDAR y
+enmascarado de acciones inválidas. Al final del capítulo se discuten los
+patrones observados.
 
-\section{Configuración de los Escenarios de la Rejilla}
-Los experimentos numéricos y la evaluación de robustez se llevan a cabo sobre tres configuraciones de mapas estáticos cargados dinámicamente desde archivos de configuración serializados JSON \citep{grid_training_09.txt, grid_training_19.txt}:
-\begin{itemize}
-    \item \texttt{map\_obstacle\_free.json}: Escenario libre de obstáculos estáticos para validar la velocidad de convergencia teórica del AGV hacia la meta de navegación \citep{grid_training_09.txt}.
-    \item \texttt{map\_simple.json}: Escenario con un obstáculo geométrico rectangular central de rejilla fija para validar la maniobrabilidad básica de evasión de esquinas \citep{grid_training_09.txt}.
-    \item \texttt{map\_1\_obstacle.json}: Escenario con un obstáculo asimétrico para validar el escape reactivo estocástico implementado \citep{grid_training_19.txt}.
-\end{itemize}
+\section{Configuración experimental}\label{sec:config_experimental}
 
-\section{Hiperparámetros de Entrenamiento de los Algoritmos}
-El entrenamiento de los agentes DQN y PPO se implementa utilizando los hiperparámetros estandarizados recopilados de tus scripts en el Cuadro~\ref{tab:hiperparametros_entrenamiento} \citep{grid_training_19.txt, networks.txt}.
+\subsection{Escenarios de la rejilla}
+Los experimentos se realizan sobre cuatro mapas estáticos de ocupación,
+almacenados como ficheros JSON y cargados en tiempo de ejecución.
+Durante el entrenamiento, el mapa se selecciona de manera uniforme al
+inicio de cada episodio (variante multi-mapa del entorno
+\texttt{Grid\_Robot\_Sections\_Env\_MultiMap}); durante la evaluación, el
+protocolo se describe en la Sección~\ref{sec:protocolo}. Los mapas
+empleados se resumen en el Cuadro~\ref{tab:mapas}.
 
 \begin{table}[htbp]
     \centering
-    \caption{Parámetros de entrenamiento del optimizador Adam y del buffer de experiencia.}
+    \caption{Mapas de ocupación empleados en los experimentos. Las
+    celdas ocupadas incluyen tanto los obstáculos declarados como su
+    posible solapamiento.}
+    \label{tab:mapas}
+    \begin{tabular}{llc}
+        \toprule
+        \textbf{Mapa} & \textbf{Descripción} & \textbf{Celdas ocupadas} \\
+        \midrule
+        \texttt{map\_obstacle\_free}  & Rejilla vacía, caso de control. & $0$ \\
+        \texttt{map\_1\_obstacle}      & Un obstáculo asimétrico. & $\sim 20$ \\
+        \texttt{map\_4\_square\_obstacle} & Cuatro obstáculos rectangulares. & $\sim 60$ \\
+        \texttt{map\_simple}           & 14 obstáculos solapados que forman un bolsillo cóncavo. & $121$ \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+El escenario \texttt{map\_obstacle\_free} valida que la política aprenda
+el término de progreso aislado del resto de términos de la recompensa.
+Los escenarios con obstáculos aumentan progresivamente la densidad
+geométrica; \texttt{map\_simple} es el más exigente porque contiene una
+geometría cóncava en la que la política reactiva debe alejarse
+momentáneamente de la meta para rodear el bolsillo, lo que configura
+precisamente el modo de fallo por mínimo local descrito por
+\citet{gao2025hierarchical}.
+
+\subsection{Hiperparámetros del agente PPO}
+El experimento de referencia (test 25) entrena el agente
+\texttt{PPOAgent} con los hiperparámetros del
+Cuadro~\ref{tab:hiperparametros_entrenamiento}. Todos los experimentos
+posteriores (tests 26--31) heredan esta misma configuración y modifican
+un único elemento, descrito en cada apartado.
+
+\begin{table}[htbp]
+    \centering
+    \caption{Hiperparámetros del agente PPO en el experimento de
+    referencia (test 25).}
     \label{tab:hiperparametros_entrenamiento}
     \begin{tabular}{lll}
-        \hline
-        \textbf{Hiperparámetro} & \textbf{Valor DQN / PPO} & \textbf{Descripción Técnica en el Código} \\
-        \hline
-        Tasa de Aprendizaje ($\alpha_{lr}$) & $10^{-3}$ & Tasa del optimizador Adam de la red de política \citep{grid_training_19.txt} \\
-        Factor de Descuento ($\gamma$) & $0.99$ & Tasa de descuento de ganancias futuras \citep{grid_training_19.txt} \\
-        Tamaño de Lote (\textit{Batch size}) & $64$ & Tamaño de muestra del optimizador estocástico \citep{grid_training_19.txt} \\
-        Pasos de Decaimiento ($\epsilon_{decay}$) & $1,000,000$ & Pasos del decaimiento extendido de exploración $\epsilon$ \citep{grid_training_19.txt} \\
-        Capacidad del Buffer & $100,000$ & Tamaño límite del buffer de replay de transiciones \citep{grid_training_19.txt} \\
-        Norma de Gradiente Máxima & $5.0$ & Límite del recorte del gradiente (\textit{gradient clipping}) \citep{grid_training_19.txt} \\
-        \hline
+        \toprule
+        \textbf{Hiperparámetro} & \textbf{Valor} & \textbf{Descripción} \\
+        \midrule
+        Tasa de aprendizaje $\alpha_{lr}$ & $10^{-3}$ & Optimizador Adam, igual para actor y crítico. \\
+        Factor de descuento $\gamma$ & $0{,}99$ & Descuento temporal del retorno. \\
+        $\lambda$ de GAE & $0{,}95$ & Suavizado del estimador de ventajas. \\
+        Clip PPO $\varepsilon$ & $0{,}20$ & Recorte del objetivo \textit{surrogate}. \\
+        Coef.\ de valor $c_v$ & $0{,}50$ & Peso de la pérdida del crítico. \\
+        Coef.\ de entropía $c_H$ & $0{,}01$ & Peso del término de entropía. \\
+        Tamaño de lote & $64$ & Mini-lote del optimizador. \\
+        Capacidad del \textit{buffer} & $10^{5}$ & \textit{Buffer} circular de transiciones. \\
+        Norma máx.\ de gradiente & $5{,}0$ & \textit{Gradient clipping} aplicado al optimizador. \\
+        Episodios de entrenamiento & $40\,000$ & Horizonte total. \\
+        Horizonte por episodio & $400$ pasos & Trunca el episodio si no se alcanza la meta antes. \\
+        Pasos por actualización & $4$ & \texttt{TrainerConfig.eps\_step}, actualiza cada 4 pasos. \\
+        \bottomrule
     \end{tabular}
 \end{table}
 
-\section{Métricas de Evaluación de Navegación}
-Para la validación objetiva del rendimiento del AGV libre de mapas frente a baselines clásicos, se estructuran las siguientes métricas de evaluación en el Cuadro~\ref{tab:metricas_navegacion_seguridad} y Cuadro~\ref{tab:metricas_computo_energia} \citep{2503.12036v1_IMPORTNAT.pdf}.
+\subsection{Hiperparámetros del agente DQN}
+Para el agente DQN basado en \texttt{GridAgent} se emplean los
+hiperparámetros del Cuadro~\ref{tab:hiperparametros_dqn}, utilizando la
+variante Double DQN con red objetivo congelada.
 
 \begin{table}[htbp]
     \centering
-    \caption{Esqueleto comparativo de rendimiento de navegación y tasa de éxito (promedio sobre 200 episodios de evaluación).}
-    \label{tab:metricas_navegacion_seguridad}
-    \begin{tabular}{lccccc}
-        \hline
-        \textbf{Algoritmo / Política} & \textbf{SR (\%)} & \textbf{SRN (\%)} & \textbf{CT (prom.)} & \textbf{SPL (\%)} & \textbf{SNT (\%)} \\
-        \hline
-        Campos Potenciales Clásicos (APF) \citep{Navigation_of_mobile_robots_using_neural_networks_and_genetic_algorithms.pdf} & 0.00 & 0.00 & 0.00 & 0.00 & 0.00 \\
-        Algoritmos Genéticos (AG-MLP) \citep{perez2022navigation} & 0.00 & 0.00 & 0.00 & 0.00 & 0.00 \\
-        DQN (GridAgentNet Básica) & 0.00 & 0.00 & 0.00 & 0.00 & 0.00 \\
-        DQN con Soft Reset (GridAgent\_2\_FIXED) & 0.00 & 0.00 & 0.00 & 0.00 & 0.00 \\
-        PPO Reactivo (Map-less) & 0.00 & 0.00 & 0.00 & 0.00 & 0.00 \\
-        \hline
+    \caption{Hiperparámetros del agente DQN (\texttt{GridAgent}).}
+    \label{tab:hiperparametros_dqn}
+    \begin{tabular}{lll}
+        \toprule
+        \textbf{Hiperparámetro} & \textbf{Valor} & \textbf{Descripción} \\
+        \midrule
+        Tasa de aprendizaje $\alpha_{lr}$ & $10^{-3}$ & Optimizador Adam. \\
+        Factor de descuento $\gamma$ & $0{,}99$ & Descuento temporal del retorno. \\
+        $\varepsilon_{\max}$ & $1{,}00$ & Probabilidad inicial de exploración. \\
+        $\varepsilon_{\min}$ & $0{,}05$ & Probabilidad asintótica de exploración. \\
+        $\tau_{\varepsilon}$ & $10^{5}$ pasos & Constante de decaimiento exponencial de $\varepsilon$. \\
+        Frec.\ actualización red objetivo & $10^{3}$ pasos & Sincroniza $\theta^- \leftarrow \theta$. \\
+        Tamaño de lote & $64$ & Mini-lote del optimizador. \\
+        Capacidad del \textit{buffer} & $10^{5}$ & \textit{Buffer} circular de transiciones. \\
+        Norma máx.\ de gradiente & $5{,}0$ & \textit{Gradient clipping}. \\
+        Variante & Double DQN & Desacopla selección y evaluación de acciones. \\
+        \bottomrule
     \end{tabular}
 \end{table}
 
+\subsection{Función de recompensa}
+Todos los experimentos emplean la función
+\texttt{ProgressReward} descrita en la
+Sección~\ref{sec:recompensa}, con los parámetros del
+Cuadro~\ref{tab:recompensa_params} salvo donde se indique lo contrario
+(test 27 activa la variante geodésica).
+
 \begin{table}[htbp]
     \centering
-    \caption{Esqueleto comparativo de consumo energético del AGV y latencia del control reactivo en tiempo real.}
-    \label{tab:metricas_computo_energia}
+    \caption{Parámetros de la función de recompensa
+    \texttt{ProgressReward} en el experimento de referencia.}
+    \label{tab:recompensa_params}
+    \begin{tabular}{ll}
+        \toprule
+        \textbf{Parámetro} & \textbf{Valor} \\
+        \midrule
+        Escala de progreso $w_d$ & $10$ \\
+        Coste por paso $c_{\text{step}}$ & $0{,}05$ \\
+        Margen de seguridad $D_{\text{safe}}$ & $\tfrac{2}{3}\,d_{\max}$ ($\approx 6{,}67$ celdas) \\
+        Penalización máx.\ por proximidad $\lambda_{\text{prox}}$ & $0{,}01$ \\
+        Recompensa terminal por meta $R_{\text{win}}$ & $+20$ \\
+        Penalización por colisión $R_{\text{fail}}$ & $-5$ \\
+        Tolerancia a la meta $\varepsilon_{\text{goal}}$ & $1$ celda \\
+        Progreso negativo recortado a cero & Sí \\
+        Métrica de distancia & Euclídea (geodésica en test 27) \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+\subsection{Configuración del sensor LiDAR}
+El sensor \texttt{GridLidar} se configura con alcance máximo
+$d_{\max} = 10$ celdas, campo de visión $2\pi$ y ruido gaussiano
+aditivo $\sigma_{\text{noise}} = 10^{-3}$ celdas. El número total de
+rayos es $N_{\text{rays}} = 15\,N_{\text{sec}}$ para garantizar varias
+muestras por sector; en el experimento de referencia
+$N_{\text{sec}} = 8$ (y por tanto $N_{\text{rays}} = 120$). El sensor
+mantiene una caché de distancias por mapa, acelerada en GPU, que se
+reutiliza entre episodios siempre que el campo de visión sea $2\pi$.
+
+\subsection{Entorno de ejecución}
+El entrenamiento se ejecuta en el equipo del autor con una tarjeta
+NVIDIA compatible con CUDA; cuando no hay GPU disponible, el agente
+y el sensor delegan en la CPU (en MPS si se detecta un Apple Silicon).
+El tiempo total del test 25 fue de 5\,h 49\,min para $40\,000$
+episodios en GPU, lo que da una velocidad media aproximada de $115$
+episodios por minuto. La capa de simulación emplea
+\texttt{gymnasium} 0.29+ y PyTorch; el \textit{logging} de métricas se
+realiza con \texttt{TensorBoard} y la configuración de cada ejecución se
+serializa en un fichero \texttt{config.json} dentro del directorio
+\texttt{runs/Test/<N>/}.
+
+\subsection{Protocolo de evaluación}\label{sec:protocolo}
+Al final del entrenamiento, el agente se evalúa durante $1\,000$
+episodios sobre los cuatro mapas, con la semilla $0$ y en dos
+modalidades complementarias:
+\begin{itemize}
+    \item \textbf{Modo \textit{sampled}}: la acción se muestrea de la
+    distribución categórica del actor, replicando el comportamiento
+    estocástico del entrenamiento.
+    \item \textbf{Modo \textit{greedy}}: la acción se escoge
+    deterministamente como el $\arg\max$ de los \textit{logits} del
+    actor; refleja el comportamiento más conservador que cabe esperar
+    en despliegue.
+\end{itemize}
+
+Se reportan las siguientes métricas globales y por mapa:
+\begin{itemize}
+    \item Tasa de éxito (\textit{Success rate}, SR): porcentaje de
+    episodios terminados por alcanzar la meta.
+    \item Tasa de colisión y tasa de agotamiento del horizonte temporal.
+    \item \textit{Loops}: número de episodios en los que la trayectoria
+    visita alguna celda al menos veinte veces, indicador de ciclos
+    estables (típicos de la modalidad \textit{greedy}).
+    \item \textit{Path ratio}: cociente entre los pasos efectivos del
+    episodio y el camino óptimo calculado por BFS; valores próximos a
+    uno indican trayectorias eficientes.
+\end{itemize}
+
+Las comparaciones entre experimentos emplean el test $z$ de proporciones
+de dos muestras ($|z|>1{,}96$ equivale a significación estadística al
+$5\,\%$).
+
+\section{Resultados del baseline PPO (test 25)}\label{sec:resultados_baseline}
+El agente PPO del baseline alcanza una tasa de éxito acumulada del
+$83\,\%$ en los primeros $4\,000$ episodios y asciende hasta el
+$93\,\%$ al llegar a los $40\,000$ episodios, con la entropía de la
+política todavía en $0{,}55$ nats al final del entrenamiento. En la
+evaluación posterior (1\,000 episodios, semilla $0$), los resultados
+globales se recogen en el Cuadro~\ref{tab:baseline_global}.
+
+\begin{table}[htbp]
+    \centering
+    \caption{Resultados del agente PPO de referencia (test 25) en la
+    evaluación final sobre los cuatro mapas (1\,000 episodios por
+    modalidad, semilla $0$). Los \textit{loops} se cuentan sobre los
+    episodios que agotan el horizonte temporal.}
+    \label{tab:baseline_global}
+    \begin{tabular}{lcccc}
+        \toprule
+        \textbf{Modalidad} & \textbf{SR global (\%)} & \textbf{Colisiones (\%)} & \textbf{Timeouts (\%)} & \textbf{Loops} \\
+        \midrule
+        Sampled & $93{,}9$ & $5{,}1$ & $1{,}0$ & $3$ \\
+        Greedy  & $91{,}1$ & $1{,}1$ & $7{,}8$ & $76$ \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+En la evaluación por mapa (Cuadro~\ref{tab:baseline_por_mapa}), tres de
+los cuatro escenarios superan el $91\,\%$ de éxito en ambas modalidades,
+mientras que \texttt{map\_simple} se estabiliza en torno al $75$--$78\,\%$
+según la modalidad. La diferencia entre modalidades es especialmente
+visible en \texttt{map\_4\_square\_obstacle}, que pasa de $91{,}4\,\%$ en
+\textit{greedy} a $99{,}2\,\%$ al muestrear la política. Dicho de otro
+modo: el modo \textit{sampled} cambia los \textit{timeouts} del
+\textit{greedy} por un número mayor de colisiones, lo que se traduce en
+una tasa de éxito global más alta ($93{,}9\,\%$ frente a $91{,}1\,\%$)
+pero a costa de más pasos cerca de los obstáculos.
+
+El análisis de las trayectorias fallidas muestra que la mayor parte de
+las colisiones en \texttt{map\_simple} se producen con el LiDAR
+detectando el obstáculo a una sola celda de distancia en la dirección de
+avance: no es un problema de percepción, sino de ruido residual de la
+política junto a una pared, que en la modalidad \textit{greedy} degenera
+en ciclos estables ($76$ de los $78$ \textit{timeouts} son
+\textit{loops}). Las trayectorias que sí alcanzan la meta son
+prácticamente óptimas: la mediana del cociente \textit{pasos\,/\,BFS}
+vale $1{,}0$ en \textit{greedy} para los cuatro mapas y oscila entre
+$1{,}0$ y $1{,}1$ en \textit{sampled}.
+
+\begin{table}[htbp]
+    \centering
+    \caption{Tasa de éxito por mapa del baseline PPO (test 25). Entre
+    paréntesis, el número de episodios con el mapa seleccionado sobre el
+    total de $1\,000$.}
+    \label{tab:baseline_por_mapa}
     \begin{tabular}{lccc}
-        \hline
-        \textbf{Algoritmo / Política} & \textbf{Pasos por Episodio} & \textbf{Consumo de Energía ($E_{total}$)} & \textbf{Tiempo de Respuesta ($ms$)} \\
-        \hline
-        Campos Potenciales Clásicos (APF) & -- & -- & 0.00 \\
-        Algoritmos Genéticos (AG-MLP) & 0.00 & -- & 0.00 \\
-        DQN (GridAgentNet Básica) & 0.00 & 0.00 & 0.00 \\
-        DQN con Soft Reset (GridAgent\_2\_FIXED) & 0.00 & 0.00 & 0.00 \\
-        PPO Reactivo (Map-less) & 0.00 & 0.00 & 0.00 \\
-        \hline
+        \toprule
+        \textbf{Mapa} & \textbf{Episodios} & \textbf{SR \textit{sampled} (\%)} & \textbf{SR \textit{greedy} (\%)} \\
+        \midrule
+        \texttt{map\_obstacle\_free}  & $267$ & $99{,}6$ & $99{,}6$ \\
+        \texttt{map\_1\_obstacle}      & $230$ & $98{,}7$ & $98{,}7$ \\
+        \texttt{map\_4\_square\_obstacle} & $255$ & $99{,}2$ & $91{,}4$ \\
+        \texttt{map\_simple}           & $248$ & $77{,}8$ & $74{,}6$ \\
+        \midrule
+        \textbf{Global}                & $1\,000$ & $\mathbf{93{,}9}$ & $\mathbf{91{,}1}$ \\
+        \bottomrule
     \end{tabular}
 \end{table}
 
-\section{Estructura de las Figuras y Curvas de Aprendizaje}
-Para el futuro vaciado de las curvas e imágenes del simulador de rejilla, se preparan las siguientes maquetaciones de figuras de LaTeX:
+\section{Estudios complementarios}\label{sec:estudios_complementarios}
+Los experimentos siguientes modifican un único elemento del baseline
+para aislar su efecto. El Cuadro~\ref{tab:comparativa_experimentos}
+resume los resultados globales; los apartados posteriores detallan cada
+estudio.
 
-\begin{figure}[htbp]
+\begin{table}[htbp]
     \centering
-    \framebox[12cm]{\vbox to 6cm{\vfill \centering [Espacio reservado para las curvas de convergencia de recompensa acumulada vs pasos de entrenamiento de DQN, DQN con Soft Reset y PPO] \vfill}}
-    \caption{Curvas de convergencia del entrenamiento de los agentes DRL en el entorno de rejilla simple estática.}
-    \label{fig:curvas_convergencia_resultados}
-\end{figure}
+    \caption{Comparación de los experimentos complementarios frente al
+    baseline PPO (test 25). Las columnas $z$ reportan el estadístico
+    del test de proporciones frente al baseline sobre $1\,000$ episodios
+    por modalidad; $|z| > 1{,}96$ equivale a significación al $5\,\%$.}
+    \label{tab:comparativa_experimentos}
+    \begin{tabular}{lccccc}
+        \toprule
+        \textbf{Test} & \textbf{Variante} & \textbf{SR \textit{sampled} (\%)} & \textbf{SR \textit{greedy} (\%)} & \textbf{SR map\_simple (\%)} & \textbf{Tiempo} \\
+        \midrule
+        25 & Baseline PPO                  & $93{,}9$ & $91{,}1$ & $77{,}8$ & 5\,h 49\,min \\
+        26 & + currículo (5 etapas)        & $93{,}9$ ($z\!=\!0$) & $89{,}3$ (n.s.) & $77{,}8$ (n.s.) & 3\,h 18\,min \\
+        27 & reward geodésico              & $93{,}4$ (n.s.) & $85{,}0$ ($z\!=\!-4{,}2$) & $78{,}6$ (n.s.) & 2\,h 52\,min \\
+        28 & GRU, sin \textit{grad clip}   & $85{,}2$ & $77{,}4$ & $\sim 60$ & 4\,h 37\,min \\
+        29 & GRU, con \textit{grad clip}   & $89{,}8$ ($z\!=\!-3{,}4$) & $88{,}3$ ($z\!=\!-2{,}1$) & $\sim 70$ & 2\,h 51\,min \\
+        30 & LiDAR $d_{\max} = 30$         & $93{,}7$ (n.s.) & $90{,}4$ (n.s.) & $79{,}4$ (n.s.) & 2\,h 41\,min \\
+        31 & + \textit{action masking}     & \multicolumn{3}{c}{\textit{pendiente de entrenamiento}} & -- \\
+        \bottomrule
+    \end{tabular}
+\end{table}
 
-\begin{figure}[htbp]
-    \centering
-    \framebox[12cm]{\vbox to 6cm{\vfill \centering [Espacio reservado para las trayectorias espaciales 2D sobre la rejilla GridMap mostrando los puntos de colisión del APF y las trayectorias seguras logradas por DRL] \vfill}}
-    \caption{Comparación visual en 2D de las trayectorias resultantes del AGV autónomo reactivo evadiendo obstáculos de rejilla.}
-    \label{fig:trayectorias_espaciales_resultados}
-\end{figure}
+\subsection{Aprendizaje por currículo (test 26)}
+El test 26 añade al baseline un currículo \texttt{SuccessCurriculum} de
+cinco etapas que empieza en el mapa vacío y añade progresivamente los
+mapas con obstáculos, con un umbral de éxito del $90\,\%$ (etapas 1--4)
+y del $85\,\%$ (etapa final) medido sobre una ventana de $500$
+episodios. Las etapas se activan en los episodios
+$0 / 1620 / 2120 / 3416 / 3916$, de modo que el agente llega al
+escenario completo tras unos $4\,000$ episodios. El currículo reduce
+sensiblemente el tiempo necesario para alcanzar el $80\,\%$ de éxito,
+pero la política final es estadísticamente indistinguible del baseline
+(SR \textit{sampled} $93{,}9\,\%$ en ambos). El resultado concuerda con
+los informes de \citet{xue2022using}, en los que la ganancia del
+currículo se concentra en la fase inicial del entrenamiento.
+
+\subsection{Progreso geodésico (test 27)}
+El test 27 sustituye la distancia euclídea del término de progreso por
+la distancia geodésica (BFS 4-conexo desde la celda meta, respetando
+los obstáculos). La hipótesis era que señalar al agente el camino que
+rodea el obstáculo mejoraría el rendimiento en \texttt{map\_simple}.
+En la práctica, el modo \textit{sampled} no mejora de forma
+significativa (SR $93{,}4\,\%$ frente a $93{,}9\,\%$) y el modo
+\textit{greedy} empeora de manera clara (SR $85{,}0\,\%$ frente a
+$91{,}1\,\%$, $z = -4{,}2$) con un aumento notable de los \textit{loops}
+($137$ frente a $76$). La señal geodésica parece inducir políticas
+determinísticas que explotan trayectorias de bordes y quedan atrapadas
+en ciclos cuando se evalúan en modo \textit{greedy}.
+
+\subsection{Política recurrente con GRU (tests 28 y 29)}
+Los tests 28 y 29 evalúan la variante \texttt{RecurrentPPOAgent}
+descrita en la Sección~\ref{sec:ppo_lstm}, con una capa GRU de $40$
+unidades y secuencias de longitud $32$. El test 28 reutilizó el bucle
+de entrenamiento del PPO estándar y descubrió que la clase recurrente
+no aplicaba el recorte de gradiente ni la máscara de padding; esto
+produjo un colapso del rendimiento desde el $90\,\%$ hasta el $25\,\%$
+alrededor del episodio $25\,000$. El test 29 corrige ambos problemas y
+reduce la tasa de aprendizaje a $3\!\cdot\!10^{-4}$. El entrenamiento es
+entonces estable, pero la política final queda por debajo del baseline
+MLP (SR \textit{sampled} $89{,}8\,\%$, $z = -3{,}4$) con una entropía
+mucho menor ($0{,}27$ nats) y entre $95$ y $111$ \textit{loops} en ambas
+modalidades. Las trayectorias exitosas son casi óptimas (mediana del
+\textit{path ratio} $= 1{,}00$), pero la memoria recurrente, tal como
+está implementada, no elimina los ciclos. Este estudio no permite
+concluir que la memoria no aporte valor en general; sí indica que, con
+esta implementación y presupuesto de entrenamiento, el MLP sigue
+siendo competitivo.
+
+\subsection{Alcance extendido del LiDAR (test 30)}
+El test 30 aumenta el alcance del sensor a $d_{\max} = 30$ celdas (frente
+a $10$ en el baseline), manteniendo el resto de parámetros constantes.
+El margen de seguridad relativo al nuevo alcance se recalcula para que
+siga valiendo $6{,}67$ celdas en términos absolutos. El resultado es
+estadísticamente indistinguible del baseline en todas las métricas
+(SR \textit{sampled} $93{,}7\,\%$, $z = -0{,}2$), lo que sugiere que la
+limitación principal del baseline no reside en la percepción.
+
+\subsection{Enmascarado de acciones inválidas (test 31)}
+El test 31 activa el enmascarado descrito en la
+Sección~\ref{sec:action_masking} manteniendo el resto de la
+configuración del baseline. En una prueba de humo de $40$ episodios no
+se registraron colisiones. El experimento está preparado para
+entrenamiento completo; los resultados definitivos se incorporarán a
+este capítulo cuando esté disponible la ejecución de $40\,000$
+episodios. Se espera que el enmascarado reduzca a cero las colisiones y
+no modifique de manera sustancial el comportamiento en los episodios de
+mínimo local, en los que ninguna acción individual lleva al choque y, por
+tanto, la máscara no restringe el espacio efectivo de decisión.
+
+\section{Discusión}\label{sec:discusion}
+Los resultados experimentales permiten extraer varias observaciones
+sobre los límites del enfoque adoptado y sobre la relación entre las
+decisiones de diseño del Capítulo~\ref{cap:diseno-arquitectura} y el
+comportamiento observado.
+
+\textbf{Casi todas las variantes convergen a un rendimiento similar.}
+Los tests 25 (baseline), 26 (currículo), 27 (reward geodésico) y 30
+(LiDAR extendido) terminan en una ventana estrecha de tasa de éxito
+global ($\sim 93\,\%$ en modo \textit{sampled}). Las variantes
+recurrentes (28 y 29) son algo peores. La convergencia a un
+rendimiento similar sugiere que, con el presupuesto de interacción
+estudiado, el cuello de botella no se encuentra en el aproximador ni en
+la percepción, sino en la señal de aprendizaje y en los patrones
+geométricos a los que la política no sabe responder.
+
+\textbf{El modo de fallo persistente es un mínimo local geométrico.}
+\texttt{map\_simple} se estabiliza en torno al $78\,\%$ en todas las
+variantes probadas. Las trayectorias fallidas siguen el patrón descrito
+por \citet{gao2025hierarchical}: el robot queda detenido o entra en un
+ciclo frente a un bolsillo cóncavo porque la salida requiere alejarse
+transitoriamente de la meta, acción que la señal densa de progreso
+desincentiva. Ni el currículo (que ajusta la distribución de tareas
+pero no modifica la función de recompensa) ni la señal geodésica (que
+dirige la política hacia la salida pero genera ciclos deterministas en
+\textit{greedy}) resuelven este modo de fallo, y la memoria GRU
+implementada en los tests 28--29 tampoco lo hace.
+
+\textbf{La modalidad de evaluación cambia la lectura.} El modo
+\textit{greedy} elimina la variabilidad útil que, en modo
+\textit{sampled}, saca al agente de los ciclos: el baseline mejora de
+$91{,}1\,\%$ a $93{,}9\,\%$ al pasar de \textit{greedy} a
+\textit{sampled}, y el test 27 muestra la mayor brecha
+($85{,}0\,\%$ frente a $93{,}4\,\%$). Esta diferencia es relevante para
+una futura evaluación en un sistema real, donde una política demasiado
+determinista puede quedar atrapada en \textit{loops} que no aparecerían
+con un muestreo estocástico.
+
+\textbf{Compromiso entre reutilización de muestras y estabilidad.} La
+implementación de PPO empleada (Sección~\ref{sec:redes}) muestrea
+mini-lotes de un \textit{buffer} con transiciones de episodios
+anteriores, acercándose a un algoritmo \textit{off-policy}. Esta
+decisión permite al agente aprovechar transiciones recolectadas con
+versiones ligeramente antiguas de la política, con el coste de que los
+log-probabilidades utilizados en la actualización pueden quedar
+obsoletos. En el baseline el efecto no bloquea el aprendizaje, pero en
+las variantes recurrentes se combina con la ausencia inicial de recorte
+de gradiente para producir el colapso observado en el test 28. Una
+línea de trabajo futuro inmediata consiste en comparar esta
+implementación con un PPO estrictamente \textit{on-policy} sobre el
+mismo escenario, para medir la contribución específica del
+\textit{buffer}.
+
+\textbf{Validez interna y limitaciones.} Las conclusiones de este
+capítulo se circunscriben al robot \texttt{GridRobotNotTurning}, a los
+cuatro mapas descritos, al algoritmo PPO con los hiperparámetros
+documentados y a los $40\,000$ episodios de entrenamiento. Las
+cifras reportadas corresponden a una única semilla ($0$); una
+estimación de la varianza entre semillas, así como la comparación
+sistemática con el agente DQN de la Sección~\ref{sec:redes}, quedan
+como líneas de trabajo pendientes antes de la defensa.

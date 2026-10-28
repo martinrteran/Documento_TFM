@@ -1,421 +1,476 @@
-\chapter{Diseño y arquitectura}\label{cap:materiales-metodos} %Materiales y métodos}
+\chapter{Diseño y arquitectura}\label{cap:diseno-arquitectura}
 
-En este capítulo se describe de manera detallada la metodología propuesta para resolver el problema de navegación autónoma reactiva de un Vehículo de Guiado Automático (AGV) en entornos de rejilla con obstáculos estáticos. En primer lugar, se formaliza el problema de navegación map-less bajo el marco teórico de los Procesos de Decisión de Markov Parcialmente Observables (POMDP). Posteriormente, se exponen los modelos cinemáticos discretos implementados (para los robots GridRobot y GridRobotNotTurning), describiendo las transiciones paso a paso por iteración, así como el procesamiento del sensor GridLidar por secciones para controlar la dimensionalidad del estado. Finalmente, se detalla la formulación matemática de la función de recompensa compuesta asimétrica y la estructura de las redes neuronales profundas (DQN y PPO) utilizadas por los agentes. % Finalmente, se profundiza en las heurísticas de detección de atascos cinemáticos del InterruptHandler y en la estrategia de recuperación mediante el mecanismo de reinicio suave (Soft Reset) diseñado para evadir de manera eficiente los atrapamientos en mínimos locales.
+En este capítulo se describe el sistema desarrollado para resolver el problema
+de navegación reactiva planteado en los capítulos anteriores. Se parte de la
+formulación matemática como proceso de decisión parcialmente observable,
+se detallan la arquitectura de control y los componentes del simulador
+(mapa, robot, sensor LiDAR y entorno Gymnasium), se formalizan la observación
+local y la función de recompensa compuesta, y se presentan las arquitecturas
+de red y los algoritmos de aprendizaje empleados por los agentes DQN y PPO.
+Las ampliaciones del esquema básico (currículo automático y
+enmascarado de acciones inválidas) se tratan al final como mecanismos
+opcionales utilizados en los experimentos descritos en el capítulo siguiente.
+Las utilidades operativas del entrenador (gestión de interrupciones,
+muestreo del replay \textit{buffer}, puntos de control) se describen en el
+Apéndice~\ref{apendice:implementacion}.
 
-
-\section{Formulación del Problema como POMDP}
-Dado que el AGV no tiene acceso global al plano de los obstáculos estáticos de la rejilla, el proceso se modela rigurosamente como un Proceso de Decisión de Markov Parcialmente Observable (POMDP), definido por la tupla matemática $\langle S, A, T, R, \Omega, O, \gamma \rangle$ \citep{md2024novel}, donde:
+\section{Formulación del problema como POMDP}
+Dado que el agente no dispone del mapa global de la rejilla y sólo observa el
+entorno a través de un sensor LiDAR de alcance limitado y de las variables
+relativas al objetivo, el problema se modela como un proceso de decisión de
+Markov parcialmente observable (POMDP), definido por la tupla
+$\langle \mathcal{S}, \mathcal{A}, T, R, \Omega, O, \gamma \rangle$
+\citep{md2024novel,gao2025hierarchical}:
 \begin{itemize}
-    \item $S$ es el espacio de estados del sistema que incluye la pose real absoluta del AGV y la configuración de los obstáculos de la rejilla.
-    \item $A$ es el espacio discreto de acciones ejecutables por el robot de guiado automático, el cual varía de acuerdo con el modelo cinemático implementado.
-    \item $T(s_{t+1}|s_t, a_t)$ es la función estocástica de transición de estados de la rejilla.
-    \item $R(s_t, a_t)$ es la recompensa asimétrica compuesta que guía y penaliza al agente.
-    \item $\Omega$ representa el espacio de observaciones locales perceptuales del robot.
-    \item $O(o_t | s_t, a_{t-1})$ denota la función de distribución probabilística de la observación sensorial local.
-    \item $\gamma \in [0, 1)$ es el factor de descuento temporal que pondera la ganancia futura.
+    \item $\mathcal{S}$: espacio de estados reales, que incluye la pose del
+    robot $\mathbf{x}_t = (c_t, r_t, \theta_t)$ y la configuración completa
+    de los obstáculos del mapa activo.
+    \item $\mathcal{A}$: espacio discreto de acciones del robot. Su
+    cardinalidad depende del modelo cinemático empleado
+    ($|\mathcal{A}|=3$ para \texttt{GridRobot}, $|\mathcal{A}|=4$ para
+    \texttt{GridRobotNotTurning}).
+    \item $T(s_{t+1}\mid s_t, a_t)$: función de transición de estados.
+    En el entorno implementado la transición es determinista salvo por el
+    muestreo del punto de inicio y de la meta en cada episodio.
+    \item $R(s_t, a_t, s_{t+1})$: función de recompensa compuesta descrita
+    en la Sección~\ref{sec:recompensa}.
+    \item $\Omega$: espacio de observaciones locales accesibles al agente,
+    formado por las lecturas del LiDAR y por la distancia y el rumbo
+    relativos a la meta.
+    \item $O(o_t\mid s_t, a_{t-1})$: función de observación, estocástica
+    por el ruido gaussiano aditivo del LiDAR.
+    \item $\gamma \in [0,1)$: factor de descuento temporal.
 \end{itemize}
-Ante la falta de observabilidad completa del estado geométrico $s_t$, el agente estima inductivamente un estado de creencia o vector de confianza $b_t(s) \in \mathcal{B}$ sobre la distribución del estado real mediante actualización recursiva bayesiana \citep{md2024novel}:
+
+Como el estado real $s_t$ no es accesible, en la literatura de POMDP se
+define un estado de creencia $b_t(s)\in\mathcal{B}$ sobre $\mathcal{S}$ que
+se actualiza recursivamente mediante \citep{md2024novel}:
 \begin{equation}
-    b_{t+1}(s') = \eta \, O(o_{t+1} | s', a_t) \sum_{s \in S} T(s'|s, a_t) b_t(s)
+    b_{t+1}(s') = \eta\, O(o_{t+1}\mid s', a_t) \sum_{s\in\mathcal{S}}
+    T(s'\mid s, a_t)\, b_t(s),
+    \label{eq:belief_update}
 \end{equation}
-donde $\eta$ es una constante normalizadora de probabilidad \citep{md2024novel}.
+donde $\eta$ es una constante de normalización. En la práctica de DRL este
+estado de creencia no se mantiene de forma explícita, sino que la red
+neuronal lo aproxima a través de una observación aumentada o,
+alternativamente, de una capa recurrente. En este trabajo se opta por la
+primera vía: la observación se compone de la lectura actual del LiDAR y
+de las variables relativas al objetivo (Sección~\ref{sec:observacion}), y
+las posibles ambigüedades temporales se dejan como línea de trabajo
+futuro (Sección~\ref{sec:ppo_lstm}).
+
 \section{Arquitectura de control}
-La arquitectura de control se basa en un entorno matricial en el que el robot se desplaza o rota secuencialmente por iteración. Este entorno envía el vector de observación ($o_t$), que describe el estado del robot y su entorno inmediato, al agente DRL para la selección de la acción discreta ($a_t$).
+El sistema sigue el ciclo clásico del aprendizaje por refuerzo:
+el entorno simulado genera una observación $o_t$ y una recompensa $r_t$ a
+partir del estado del robot, el mapa y la meta; el agente elige una acción
+discreta $a_t$ en función de su política $\pi(a\mid o)$; el entorno
+ejecuta la acción, decide si el episodio ha terminado y entrega la nueva
+observación. La \fig{fig:tfmcontrol} resume la estructura y el flujo de
+información.
 
 \begin{figure}[htbp]
     \centering
     \includegraphics[width=0.85\linewidth]{imagenes/TFM_Control}
-    \caption[Arquitectura de control DRL]{Diagrama de la arquitectura de control DRL y flujo de información entre el entorno y el agente.}
+    \caption[Arquitectura de control DRL]{Arquitectura de control por
+    aprendizaje por refuerzo profundo. El entorno (\texttt{BaseGridEnv})
+    compone mapa, robot y sensor LiDAR, calcula la señal de recompensa a
+    partir del contrato \texttt{RewardFunction} y entrega $(o_t, r_t)$ al
+    agente. El agente elige $a_t$ con su política y, al final del episodio,
+    actualiza sus redes a partir de las transiciones almacenadas.}
     \label{fig:tfmcontrol}
 \end{figure}
 
-Como se observa en \fig{fig:tfmcontrol}, las observaciones ($o_t$) y la señal de recompensa ($R_t(o_t,a_t)$) se almacenan en una cola de experiencia para el posterior entrenamiento de las redes neuronales del agente.
+Desde el punto de vista del software, la arquitectura separa cinco
+componentes con responsabilidades acotadas, lo que permite recombinarlos
+sin tocar el bucle de entrenamiento:
+\begin{itemize}
+    \item \textbf{Mapa} (\texttt{GridMap}): representación discreta del
+    entorno como una matriz binaria de ocupación con obstáculos
+    rectangulares (\texttt{GridObstacle}).
+    \item \textbf{Robot} (\texttt{Robot}, con dos realizaciones
+    concretas): mantiene la posición, implementa el modelo de movimiento
+    discreto y expone el conjunto de acciones válidas en cada estado.
+    \item \textbf{Sensor} (\texttt{GridLidar}): \textit{raycasting} 2D
+    acelerado en PyTorch, con caché de distancias por mapa.
+    \item \textbf{Entorno} (\texttt{BaseGridEnv} y subclases): envoltorio
+    Gymnasium que coordina los tres anteriores, decide el fin del episodio
+    y aplica la función de recompensa.
+    \item \textbf{Agente} y \textbf{entrenador}
+    (\texttt{BaseRLAgent}, \texttt{BaseTrainer}): el agente implementa la
+    política y las actualizaciones del algoritmo concreto;
+    el entrenador aloja el bucle de episodios y se comunica con el agente
+    únicamente a través de ganchos (\textit{hooks}) definidos en la clase
+    base, lo que permite reutilizar un único bucle para DQN, PPO y
+    el resto de algoritmos.
+\end{itemize}
 
-\section{Modelo Cinemático del AGV sobre Rejilla}
-El vehículo de guiado automático (AGV) opera sobre una cuadrícula discreta de celda fija $\Delta_{\text{cell}} = 10$\,unidades de simulación. Y se formalizan dos modelos cinemáticos alternativos en espacio discreto.
+El punto clave del diseño es que la función de recompensa no está cableada
+en el entorno, sino que se le inyecta como un objeto que cumple el
+contrato \texttt{RewardFunction} (Sección~\ref{sec:recompensa}). Así, el
+entorno decide \textit{cuándo} termina un episodio (meta alcanzada,
+colisión o superación del horizonte temporal) y la recompensa sólo
+puntúa el paso, lo que permite comparar funciones de recompensa distintas
+sin alterar la semántica de la tasa de éxito.
 
-\subsection{Modelo con Giro y Avance (\texttt{GridRobot})}
-El estado del AGV en el instante $t$ se define por el vector de pose $\mathbf{x}_t = [x_t, y_t, \theta_t]^T \in \mathcal{X}$, con $\mathcal{X} = \mathbb{Z}^2 \times \Theta$ y $\Theta = \{0^\circ, 90^\circ, 180^\circ, 270^\circ\}$. La transición de estado dada la acción $a_t \in \{0, 1, 2\}$ se rige por la ecuación diferencial discreta:
+\section{Modelo cinemático del AGV sobre rejilla}
+El vehículo opera sobre una cuadrícula discreta de celda fija
+$\Delta_{\text{cell}} = 10$ unidades de simulación. La pose se expresa en
+coordenadas enteras $\mathbf{p}_t = (c_t, r_t) \in \mathbb{Z}^2$ (columna y
+fila; el origen está en la esquina superior izquierda del mapa y las filas
+crecen hacia abajo). Se definen dos modelos cinemáticos discretos
+alternativos.
+
+\subsection{Modelo con giro y avance (\texttt{GridRobot})}
+El robot mantiene una orientación interna
+$\theta_t \in \{0^\circ, 90^\circ, 180^\circ, 270^\circ\}$ (N, O, S, E), y
+el estado se amplía a $\mathbf{x}_t = (c_t, r_t, \theta_t)$. La transición
+dado $a_t \in \{0, 1, 2\}$ es:
 \begin{equation}
-    \mathbf{x}_{t+1} = \mathbf{x}_t + \mathbf{f}(\mathbf{x}_t, a_t)
-\end{equation}
-donde el operador de transición $\mathbf{f}(\mathbf{x}_t, a_t)$ se define vectorialmente como:
-
-\begin{equation}
+    \mathbf{x}_{t+1} = \mathbf{x}_t + \mathbf{f}(\mathbf{x}_t, a_t), \qquad
     \mathbf{f}(\mathbf{x}_t, a_t) =
     \begin{bmatrix}
-        \delta(a_t) \mathbf{d}(\theta_t) \\
+        \delta(a_t)\, \mathbf{d}(\theta_t) \\
         \Delta\theta(a_t)
-    \end{bmatrix}
+    \end{bmatrix},
 \end{equation}
-
-Siendo $\mathbf{d}(\theta_t) = [\cos\theta_t, \, \sin\theta_t]^T \in \{-1, 0, 1\}^2$ el vector unitario de dirección cardinal, $\delta(a_t) = \mathbb{I}(a_t = 0)$ la función indicadora de traslación, y $\Delta\theta(a_t)$ el incremento angular modelado como:
-
+con $\mathbf{d}(\theta_t) = (\cos\theta_t, -\sin\theta_t) \in \{-1,0,1\}^2$
+el vector unitario de dirección cardinal (la componente de fila invierte el
+signo porque las filas crecen hacia abajo), $\delta(a_t) = \mathbb{I}(a_t = 0)$
+el indicador de traslación, y
 \begin{equation}
     \Delta\theta(a_t) =
     \begin{cases}
-        0^\circ & \text{si } a_t = 0 \text{ (Avanzar)} \\
-        +90^\circ \pmod{360^\circ} & \text{si } a_t = 1 \text{ (Giro Izquierda)} \\
-        -90^\circ \pmod{360^\circ} & \text{si } a_t = 2 \text{ (Giro Derecha)}
+        0 & \text{si } a_t = 0\ (\text{avanzar})\\
+        +90^\circ \pmod{360^\circ} & \text{si } a_t = 1\ (\text{giro izq.})\\
+        -90^\circ \pmod{360^\circ} & \text{si } a_t = 2\ (\text{giro der.})
     \end{cases}
 \end{equation}
+Si la celda frontal está ocupada, el avance es un paso sin movimiento (se
+registra como colisión); los giros son siempre válidos.
 
-
-
-\subsection{Modelo sin Giro y Traslación Directa (\texttt{GridRobotNotTurning})}
-Para este modelo puramente holonómico discreto, la orientación se asume constante, reduciendo el espacio de estados a la posición cartesiana $\mathbf{p}_t = [x_t, y_t]^T \in \mathbb{Z}^2$. La ecuación de movimiento adopta la forma matricial compacta:
-
+\subsection{Modelo sin giro con desplazamiento cardinal (\texttt{GridRobotNotTurning})}
+Para este modelo la orientación es constante ($\theta = 0$) y el estado se
+reduce a la posición cartesiana $\mathbf{p}_t = (c_t, r_t)\in\mathbb{Z}^2$.
+La ecuación de movimiento adopta la forma matricial
 \begin{equation}
-    \mathbf{p}_{t+1} = \mathbf{p}_t + \mathbf{M} \mathbf{e}_{a_t}
+    \mathbf{p}_{t+1} = \mathbf{p}_t + \mathbf{M}\, \mathbf{e}_{a_t},
 \end{equation}
-
-donde $\mathbf{e}_{a_t} \in \mathbb{R}^4$ es el vector canónico unitario de la acción $a_t \in \{0, 1, 2, 3\}$, y $\mathbf{M} \in \mathbb{Z}^{2 \times 4}$ es la matriz de desplazamiento cardinal:
-
+donde $\mathbf{e}_{a_t}\in\{0,1\}^4$ es el vector canónico de la acción
+$a_t\in\{0,1,2,3\}$ y $\mathbf{M}\in\mathbb{Z}^{2\times 4}$ es la matriz
+de desplazamientos cardinales
 \begin{equation}
     \mathbf{M} =
     \begin{bmatrix}
-        0 &  0 &  1 & -1 \\
+         0 &  0 &  1 & -1 \\
         -1 &  1 &  0 &  0
     \end{bmatrix}
-    \quad \text{correspondiente a } \{\text{Norte}, \text{Sur}, \text{Este}, \text{Oeste}\}
+    \qquad \text{columnas} = \{\text{N}, \text{S}, \text{E}, \text{O}\}.
 \end{equation}
-\section{Espacio de Observaciones Perceptuales Locales}
-El estado observable por el agente en cada instante $t$, denotado como $\mathbf{o}_t \in \mathbb{R}^{D_{\text{obs}}}$, se estructura como un vector denso formado por la concatenación de la información exteroceptiva del sensor LiDAR y la odometría relativa hacia la meta. Inicialmente, este vector se define como:
+Si la celda destino está fuera del mapa o es un obstáculo, el robot no se
+mueve y el entorno marca la transición como colisión.
 
-\begin{equation}\label{eq:obs_base}
-    \mathbf{o}_t = \begin{bmatrix} \mathbf{r}_{\text{LiDAR}} \\ \boldsymbol{\theta}_{\text{LiDAR}} \\ d_{\text{goal}} \\ \theta_{\text{goal}} \end{bmatrix} \in \mathbb{R}^{2 N_{\text{sec}} + 2}
+Los experimentos reportados en el capítulo de resultados utilizan
+exclusivamente el modelo \texttt{GridRobotNotTurning}; el modelo
+\texttt{GridRobot} está implementado y disponible como alternativa.
+
+\section{Espacio de observaciones}\label{sec:observacion}
+En cada instante $t$, el agente recibe un vector denso
+$\mathbf{o}_t \in \mathbb{R}^{D_{\text{obs}}}$ formado por las lecturas del
+LiDAR agrupadas en sectores angulares, seguidas de la distancia y el rumbo
+relativos a la meta.
+
+\subsection{Sensor LiDAR por secciones angulares}
+El sensor \texttt{GridLidar} lanza $N_{\text{rays}}$ rayos en un campo de
+visión $\text{FoV}$, con alcance máximo $d_{\max}$ y ruido aditivo
+gaussiano de desviación $\sigma_{\text{noise}}$. Para cada rayo devuelve
+la pareja $(d_i, \phi_i)$ con $d_i$ la distancia al primer obstáculo
+(acotada a $d_{\max}$ si no hay impacto) y $\phi_i$ el ángulo del rayo
+relativo al rumbo del robot. Las distancias se cachean por mapa en
+tensores de PyTorch, lo que permite reusar el cálculo cuando el campo
+visual es $2\pi$ y el robot cambia de posición pero conserva orientación.
+
+Para controlar la dimensión del estado observable sin perder cobertura
+angular, los $N_{\text{rays}}$ rayos se agrupan en $N_{\text{sec}}$
+sectores angulares de amplitud uniforme. En cada sector se conserva la
+lectura más próxima al robot:
+\begin{equation}\label{eq:r_lidar_section}
+    (r^{(k)}, \phi^{(k)}) =
+    \arg\min_{(d_i, \phi_i)\in\text{Sector}_k} d_i,
+    \qquad k = 1, \dots, N_{\text{sec}}.
 \end{equation}
+Si un sector no detecta ningún obstáculo dentro de $d_{\max}$, se asigna
+$(r^{(k)}, \phi^{(k)}) = (d_{\max}, \bar{\phi}_k)$, con $\bar{\phi}_k$ el
+centro angular del sector. Las configuraciones típicas usadas en los
+experimentos son $N_{\text{sec}} = 8$ con $N_{\text{rays}} = 15\,N_{\text{sec}}$,
+$d_{\max} = 10$ celdas y $\text{FoV} = 2\pi$.
 
-donde $\mathbf{r}_{\text{LiDAR}}, \boldsymbol{\theta}_{\text{LiDAR}} \in \mathbb{R}^{N_{\text{sec}}}$ representan los vectores de distancias mínimas por sector y sus ángulos de incidencia asociados, respectivamente. Por su parte, $d_{\text{goal}}$ y $\theta_{\text{goal}}$ indican la distancia cartesiana euclídea y el ángulo relativo desde el AGV hasta la meta. La lectura de distancia no normalizada para cada sector $k$ se obtiene mediante:
-
-\begin{equation}\label{eq:r_lidar}
-    r_{\text{LiDAR}}^{(k)} = \min_{\phi \in \text{Sector}_k} \{ d_{\text{ray}}(\phi) \}, \quad k \in \{1, \dots, N_{\text{sec}}\}
+\subsection{Variables relativas al objetivo}
+Dadas las posiciones del robot $\mathbf{p}_t$ y de la meta
+$\mathbf{p}_g$, el entorno calcula la distancia euclídea
+$d_{\text{goal}} = \lVert \mathbf{p}_g - \mathbf{p}_t \rVert_2$ y el
+rumbo relativo al heading del robot
+\begin{equation}
+    \theta_{\text{goal}} = \mathrm{wrap}\Big(\,\mathrm{atan2}(-\Delta r,\, \Delta c)
+    - \theta_t\,\Big) \in (-\pi, \pi],
 \end{equation}
+con $(\Delta c, \Delta r) = \mathbf{p}_g - \mathbf{p}_t$ y
+$\mathrm{wrap}(\cdot)$ el envoltorio al intervalo $(-\pi, \pi]$. El signo
+negativo en $\Delta r$ compensa que las filas crecen hacia abajo, de modo
+que la convención angular coincide con la del LiDAR (antihoraria, con el
+cero alineado con el heading del robot). Esta elección de convención
+unifica el frame egocéntrico de LiDAR y meta, y corrige un espejado que
+afectaba a los experimentos anteriores al test 25.
 
-Para abordar la pérdida de la propiedad de Markov inherente a la observabilidad parcial del entorno (POMDP), el espacio de observaciones se amplía incluyendo la memoria inercial de la última acción ejecutada, $a_{t-1}$. Adicionalmente, con el objetivo de estabilizar el cálculo de gradientes y acelerar la convergencia de la red neuronal, las magnitudes espaciales se normalizan al rango $[0, 1]$. La formulación final de \eq{eq:obs_base} resulta en:
-
-\begin{equation}\label{eq:obs_norm}
-    \mathbf{o}_t = \begin{bmatrix} \bar{\mathbf{r}}_{\text{LiDAR}} \\ \boldsymbol{\theta}_{\text{LiDAR}} \\ \bar{d}_{\text{goal}} \\ \theta_{\text{goal}} \\ a_{t-1} \end{bmatrix} \in \mathbb{R}^{2 N_{\text{sec}} + 3}
+\subsection{Vector de observación}
+Concatenando los sectores y las variables de la meta se obtiene la
+observación plana
+\begin{equation}\label{eq:obs}
+    \mathbf{o}_t = \begin{bmatrix}
+        r^{(1)}, \phi^{(1)}, \dots, r^{(N_{\text{sec}})}, \phi^{(N_{\text{sec}})},
+        d_{\text{goal}},\, \theta_{\text{goal}}
+    \end{bmatrix}^\top \in \mathbb{R}^{2 N_{\text{sec}} + 2}.
 \end{equation}
+Para $N_{\text{sec}} = 8$, la dimensión del estado observable es
+$D_{\text{obs}} = 18$. El entorno expone adicionalmente, en la información
+auxiliar de cada paso, la máscara binaria de las acciones válidas
+$m_t\in\{0,1\}^{|\mathcal{A}|}$ obtenida por el robot
+(\texttt{Robot.valid\_actions}), utilizada por el mecanismo de
+enmascarado descrito en la Sección~\ref{sec:action_masking}.
 
-donde $\bar{\mathbf{r}}_{\text{LiDAR}}$ contiene las distancias sectoriales normalizadas respecto al rango máximo del sensor $d_{\text{max}}$, calculadas como:
-
-\begin{equation}\label{eq:r_lidar_norm}
-    \bar{r}_{\text{LiDAR}}^{(k)} = \min_{\phi \in \text{Sector}_k} \left\{ \frac{d_{\text{ray}}(\phi)}{d_{\text{max}}} \right\}, \quad k \in \{1, \dots, N_{\text{sec}}\}
-\end{equation}
-
-De manera análoga, $\bar{d}_{\text{goal}}$ representa la distancia cartesiana a la meta normalizada mediante $d_{\text{diag}}$, correspondiente a la diagonal del mapa cartográfico (distancia máxima franqueable en la rejilla):
-
-\begin{equation}\label{eq:d_goal_norm}
-    \bar{d}_{\text{goal}} = \frac{d_{\text{goal}}}{d_{\text{diag}}}
-\end{equation}
-\section{Función de Recompensa Paramétrica}
-La señal de recompensa $r_t = \mathcal{R}(s_t, a_t)$ se formula mediante una combinación lineal de incentivos dispersos (\textit{sparse}) y densos. Para permitir la experimentación entre diferentes modelos cinemáticos y casuísticas, los pesos de cada componente están parametrizados \citep{grid_training_19.txt}:
-
+\section{Función de recompensa}\label{sec:recompensa}
+La señal de recompensa se construye como una combinación lineal de cuatro
+términos con pesos parametrizables \citep{gao2025hierarchical,xue2022using}:
 \begin{equation}\label{eq:reward_total}
-    r_t = r_{\text{term}} + r_{\text{prog}} - r_{\text{step}} - r_{\text{prox}}
+    r_t = r_{\text{prog}} + r_{\text{step}} + r_{\text{prox}} + r_{\text{term}}.
 \end{equation}
-
-Los componentes de la función se definen de la siguiente manera:
 
 \begin{itemize}
-    \item $r_{\text{term}}$ asigna la recompensa de los estados terminales (absorbentes), cuyos valores exactos ($R_{\text{win}}, R_{\text{fail}}, R_{\text{timeout}}$) se ajustan empíricamente según la complejidad del escenario:
+    \item \textbf{Progreso hacia la meta.} Mide la aproximación radial
+    normalizada a la meta respecto a la iteración anterior:
     \begin{equation}
-        r_{\text{term}} = \begin{cases}
-            R_{\text{win}} > 0, & \text{si el AGV alcanza la meta} \\
-            R_{\text{fail}} < 0, & \text{si colisiona con un obstáculo} \\
-            R_{\text{timeout}} < 0, & \text{si excede el horizonte máximo } T_{\text{max}} \\
-            0, & \text{durante las transiciones regulares}
-        \end{cases}
+        r_{\text{prog}} = w_d\, \frac{d_{t-1} - d_t}{d_{\text{diag}}},
     \end{equation}
-
-    \item $r_{\text{prog}} = w_d (d_{t-1} - d_t)$ es un término de \textit{reward shaping} basado en el potencial. Escala con el peso $w_d$ la reducción de la distancia cartesiana entre el AGV y la meta respecto a la iteración anterior.
-
-    \item $r_{\text{step}}$ es una pequeña penalización escalar aplicada en cada transición regular. Su objetivo es evitar oscilaciones innecesarias e incentivar políticas de ruta mínima \citep{article_1743243135.pdf}.
-
-    \item $r_{\text{prox}}$ introduce una penalización de seguridad repulsiva si el agente invade un margen de proximidad crítico. Dada la distancia mínima censada $d_{\text{min}} = \min(\mathbf{r}_{\text{LiDAR}})$ y un radio de seguridad parametrizable $D_{\text{safe}}$:
+    con $d_t = d_{\text{goal}}$, $d_{\text{diag}}$ la diagonal máxima
+    sobre todos los mapas de entrenamiento (invariable, para que las escalas
+    sean comparables entre mapas) y $w_d$ un peso configurable. En los
+    experimentos de referencia se emplea $w_d = 10$ y la variante
+    \textit{clipped} $r_{\text{prog}} \leftarrow \max(r_{\text{prog}},\,0)$,
+    que anula la señal cuando el robot se aleja de la meta en lugar de
+    penalizarla; una variante alternativa reemplaza $d_t$ por la distancia
+    geodésica calculada por un BFS 4-conexo desde la celda meta.
+    \item \textbf{Coste por paso.} Penalización escalar constante que
+    desincentiva oscilaciones y rutas excesivamente largas:
+    \begin{equation}
+        r_{\text{step}} = -c_{\text{step}},
+    \end{equation}
+    con $c_{\text{step}} = 0{,}05$ en los experimentos de referencia.
+    \item \textbf{Penalización por proximidad.} Activa cuando la lectura
+    más cercana del LiDAR cae por debajo de un margen de seguridad
+    $D_{\text{safe}}$; crece linealmente desde cero hasta
+    $-\lambda_{\text{prox}}$ al tocar el obstáculo:
     \begin{equation}
         r_{\text{prox}} = \begin{cases}
-            \lambda_{\text{prox}} \left( 1 - \frac{d_{\text{min}}}{D_{\text{safe}}} \right), & \text{si } d_{\text{min}} < D_{\text{safe}} \\
-            0, & \text{en caso contrario}
-        \end{cases}
+            -\lambda_{\text{prox}}\, \dfrac{D_{\text{safe}} - d_{\min}}{D_{\text{safe}}} &
+            \text{si } d_{\min} < D_{\text{safe}}\\[0.4em]
+            0 & \text{en otro caso}
+        \end{cases},
     \end{equation}
-    donde el factor $\lambda_{\text{prox}}$ pondera el coste máximo impuesto antes del impacto inminente.
+    con $d_{\min} = \min_k r^{(k)}$. En los experimentos de referencia se
+    utiliza $\lambda_{\text{prox}} = 10^{-2}$ y
+    $D_{\text{safe}} = \tfrac{2}{3}\, d_{\max}$.
+    \item \textbf{Recompensa terminal.} Se suma al final del paso cuando la
+    transición cierra el episodio:
+    \begin{equation}
+        r_{\text{term}} = \begin{cases}
+            +R_{\text{win}} & \text{si } \lVert \mathbf{p}_g - \mathbf{p}_t \rVert_2 < \varepsilon_{\text{goal}}\\
+            -R_{\text{fail}} & \text{si el robot colisiona}\\
+            0 & \text{en una transición regular o por fin de horizonte}
+        \end{cases},
+    \end{equation}
+    con $R_{\text{win}} = 20$, $R_{\text{fail}} = 5$ y
+    $\varepsilon_{\text{goal}} = 1$ celda. El agotamiento del horizonte
+    temporal $T_{\max}$ no concede recompensa terminal, por lo que la señal
+    de fin por tiempo se transmite al agente únicamente a través del
+    acumulado de los $c_{\text{step}}$.
 \end{itemize}
-\section{Arquitecturas de Redes Neuronales DQN y PPO}
-Las aproximaciones de las funciones de valor y las políticas del actor-crítico se modelan mediante perceptrones multicapa (MLP) totalmente conectados. La dimensión de la capa de entrada, $D_{\text{obs}}$, se adapta dinámicamente tanto a la resolución del sensor ($N_{\text{sec}} \in \{4, 8\}$) como a la configuración del estado perceptual (inclusión o exclusión de la memoria inercial $a_{t-1}$). En consecuencia, el tamaño de la entrada abarca los posibles valores $D_{\text{obs}} \in \{10, 11, 18, 19\}$. Del mismo modo, la capa de salida se ajusta a la cardinalidad del espacio de acciones discreto $|\mathcal{A}| \in \{3, 4\}$, dependiente del modelo cinemático activo.
 
-El diseño estructural paramétrico de cada modelo se detalla en el Cuadro~\ref{tab:arquitectura_redes_detallada}.
+Esta formulación respeta el contrato de \texttt{RewardFunction} descrito
+en la Sección anterior: el entorno construye un \texttt{StepContext} con
+toda la información del paso ($d_t$, $d_{t-1}$, $d_{\min}$,
+$\mathbf{p}_t$, $\mathbf{p}_g$, acción previa, flags de meta/colisión,
+etc.) y la función de recompensa sólo lo puntúa. En consecuencia, la
+tasa de éxito es independiente del diseño de la recompensa y permite
+comparar funciones alternativas sobre la misma métrica.
+
+\section{Arquitecturas de red neuronal}\label{sec:redes}
+Las políticas y las funciones de valor se aproximan con perceptrones
+multicapa (MLP) completamente conectados definidos en el módulo
+\texttt{networks.py}. La dimensión de la capa de entrada,
+$D_{\text{obs}} = 2 N_{\text{sec}} + 2$, varía con la resolución angular
+del LiDAR; la de salida se ajusta a la cardinalidad del espacio de
+acciones ($|\mathcal{A}| \in \{3, 4\}$). La configuración empleada en los
+experimentos de referencia se resume en el Cuadro~\ref{tab:arquitectura_redes}.
 
 \begin{table}[htbp]
     \centering
-    \caption{Topología y dimensiones de las redes neuronales implementadas para los agentes reactivos. La dimensión de entrada $D_{\text{obs}}$ varía según la configuración del entorno (resolución del LiDAR y uso de acción previa).}
-    \label{tab:arquitectura_redes_detallada}
+    \caption{Arquitecturas de red neuronal implementadas y utilizadas por
+    los agentes DQN y PPO. La red llamada \texttt{SimpleQNetwork} se
+    emplea tanto como aproximador $Q(s,a)$ en DQN como para producir los
+    logits de la política en PPO; la red \texttt{ValueNetwork} actúa como
+    crítico $V(s)$ en PPO. Las dimensiones aquí reflejan el baseline
+    experimental; todas las redes son paramétricas en profundidad y
+    anchura.}
+    \label{tab:arquitectura_redes}
     \begin{tabular}{llcl}
         \toprule
-        \textbf{Red Neuronal} & \textbf{Capa / Tipo} & \textbf{Dimensión (Nodos)} & \textbf{Activación} \\
+        \textbf{Red} & \textbf{Capa / Tipo} & \textbf{Dim.} & \textbf{Activación} \\
         \midrule
-        \textbf{GridAgentNet} & Entrada & $D_{\text{obs}}$ & Ninguna \\
-        (Agente Base) & Oculta 1 (Lineal) & $253$ & ReLU \\
-        & Oculta 2 (Lineal) & $56$ & ReLU \\
-        & Salida (Lineal) & $|\mathcal{A}|$ & Ninguna (Q-Values) \\
+        \texttt{GridAgentNet} & Entrada & $D_{\text{obs}}$ & --- \\
+        (DQN base)            & Oculta 1 (Lineal) & $253$ & ReLU \\
+                              & Oculta 2 (Lineal) & $56$ & ReLU \\
+                              & Salida (Lineal) & $|\mathcal{A}|$ & --- \ ($Q(s,a)$) \\
         \midrule
-        \textbf{SimpleQNetwork} & Entrada & $D_{\text{obs}}$ & Ninguna \\
-        (Agente DQN) & Oculta 1 (Lineal) & $H$ & ReLU \\
-        & Oculta 2 (Lineal) & $H$ & ReLU \\
-        & Salida (Lineal) & $|\mathcal{A}|$ & Ninguna (Q-Values) \\
+        \texttt{SimpleQNetwork} & Entrada & $D_{\text{obs}}$ & --- \\
+        (DQN / política PPO)    & Oculta $1\dots L_{\text{hid}}+1$ & $H = 64$ & ReLU \\
+                                & Salida (Lineal) & $|\mathcal{A}|$ & --- \ (logits o $Q$) \\
         \midrule
-        \textbf{PolicyNetwork} & Entrada & $D_{\text{obs}}$ & Ninguna \\
-        (Actor PPO) & Oculta 1 (Lineal) & $H = 128$ & ReLU \\
-        & Oculta 2 (Lineal) & $64$ & ReLU \\
-        & Salida (Lineal) & $|\mathcal{A}|$ & Softmax \\
-        \midrule
-        \textbf{ValueNetwork} & Entrada & $D_{\text{obs}}$ & Ninguna \\
-        (Crítico PPO) & Oculta 1 (Lineal) & $H = 128$ & ReLU \\
-        & Oculta 2 (Lineal) & $64$ & ReLU \\
-        & Salida (Lineal) & $1$ & Ninguna ($V(s)$) \\
+        \texttt{ValueNetwork}   & Entrada & $D_{\text{obs}}$ & --- \\
+        (crítico PPO)           & Oculta 1 (Lineal) & $H = 64$ & ReLU \\
+                                & Oculta 2 (Lineal) & $64$ & ReLU \\
+                                & Salida (Lineal) & $1$ & --- \ ($V(s)$) \\
         \bottomrule
     \end{tabular}
 \end{table}
 
-\subsection{Aproximación de Valor de Acción (DQN)}
-La arquitectura del \textit{Deep Q-Network} (DQN) se orienta a aproximar la función de valor de acción óptima $Q^*(s, a)$. A diferencia de los métodos de gradiente de política, la red genera predicciones escalares (Q-Values) para todas las acciones posibles de forma simultánea. En el marco de esta tesis, se han implementado dos variantes estructurales para la evaluación mediante Q-Learning:
+\subsection{Aproximador de valor de acción (DQN)}
+La familia de agentes basada en valor (clases \texttt{GridAgent} y
+\texttt{DQNAgent}) aproxima la función de valor óptima $Q^*(s,a)$ mediante
+una red $Q_\theta(s,a)$ y utiliza Double DQN para desacoplar la selección
+de la acción de su evaluación \citep{shakya2023reinforcement}. Durante la
+inferencia, la acción se obtiene de manera determinista como
+$a_t = \arg\max_a Q_\theta(\mathbf{o}_t, a)$. Durante el entrenamiento, la
+exploración se controla mediante una política $\varepsilon$-greedy con
+decaimiento exponencial
+\begin{equation}
+    \varepsilon_t = \varepsilon_{\min} + (\varepsilon_{\max} - \varepsilon_{\min})\,
+    \exp\!\left(-\dfrac{t}{\tau_{\varepsilon}}\right),
+\end{equation}
+con valores por defecto
+$\varepsilon_{\max} = 1$, $\varepsilon_{\min} = 0{,}05$ y
+$\tau_{\varepsilon} = 10^5$ pasos de simulación. Las transiciones se
+almacenan en un \textit{buffer} de repetición de experiencia de capacidad
+$10^5$ y la red objetivo se sincroniza cada $N_{\text{tgt}} = 10^3$
+actualizaciones. La red soporta tanto la variante base
+\texttt{GridAgentNet} (dos capas ocultas asimétricas, $253 \to 56$) como
+la variante paramétrica \texttt{SimpleQNetwork} con profundidad y anchura
+configurables.
 
-\begin{itemize}
-    \item \textbf{Red Base Asimétrica (\texttt{GridAgentNet}):} Una topología estática diseñada como \textit{baseline} inicial. Está compuesta por dos capas ocultas con un fuerte descenso dimensional (de $253$ a $56$ neuronas). Esta asimetría acentuada busca forzar una compresión rápida del espacio de características perceptuales antes de proyectarlo al espacio de acciones.
-    \item \textbf{Red Q Paramétrica (\texttt{SimpleQNetwork}):} Una arquitectura modular y simétrica que permite ajustar dinámicamente tanto la profundidad (número de capas ocultas) como la anchura (dimensión $H$) de la red. Favorece la ejecución de estudios de hiperparámetros sobre la capacidad de generalización del modelo, empleando un diseño estándar con capas lineales sucesivas de dimensión $H$.
-\end{itemize}
+\subsection{Actor-crítico con PPO}
+El agente \texttt{PPOAgent} implementa optimización de política próxima
+con el objetivo recortado
+\begin{equation}
+    \mathcal{L}^{\text{CLIP}}(\theta) =
+    \hat{\mathbb{E}}_t\!\left[\min\!\big(\rho_t(\theta)\,\hat{A}_t,\;
+    \mathrm{clip}(\rho_t(\theta),\,1-\varepsilon,\,1+\varepsilon)\,\hat{A}_t\big)\right],
+\end{equation}
+con el cociente de probabilidades
+$\rho_t(\theta) = \pi_\theta(a_t\mid \mathbf{o}_t) / \pi_{\theta_{\text{old}}}(a_t\mid \mathbf{o}_t)$
+y las ventajas $\hat{A}_t$ estimadas por GAE
+\citep{sivashangaran2023deep,ge2024deep}. La pérdida total añade un
+término de valor y un término de entropía para fomentar la exploración:
+\begin{equation}
+    \mathcal{L}(\theta,\phi) = \mathcal{L}^{\text{CLIP}}(\theta)
+    + c_v\, \big(V_\phi(\mathbf{o}_t) - R_t\big)^2
+    - c_H\, \mathcal{H}\!\big[\pi_\theta(\cdot\mid\mathbf{o}_t)\big].
+\end{equation}
 
-En ambas variantes, la capa de salida carece de función de activación (\textit{Linear}), lo que permite que los estimadores $Q(s, a)$ abarquen todo el rango de los números reales, un requisito indispensable para alcanzar los valores extremos de las recompensas dispersas (como $+100$ o $-100$). Durante la fase de inferencia, la selección de la acción óptima se realiza de manera determinista evaluando $a_t = \arg\max_a Q(\mathbf{o}_t, a)$.
-
-\subsection{Actor-Crítico Asimétrico con PPO}
-La arquitectura de optimización de política proximal (PPO) se divide en dos redes independientes sin pesos compartidos para evitar interferencias en el cálculo de los gradientes entre el objetivo de política y el de valor:
-\begin{itemize}
-    \item \textbf{Actor (\texttt{PolicyNetwork}):} Actúa como la función de política estocástica $\pi_\theta(a_t \mid \mathbf{o}_t)$. La capa de salida aplica una función de activación \textit{Softmax} sobre la dimensión de las acciones, generando una distribución de probabilidad categórica de la cual se muestrea la acción a ejecutar.
-    \item \textbf{Crítico (\texttt{ValueNetwork}):} Estima la función de valor del estado $V_\phi(\mathbf{o}_t)$. Su salida es un único nodo escalar lineal, entrenado para minimizar el error cuadrático medio respecto a los retornos descontados observados empíricamente.
-\end{itemize}
-
-\subsection{Extensión Recurrente Propuesta (PPO-LSTM)}\label{sec:ppo_lstm}
-Para abordar la pérdida de la propiedad de Markov derivada de las observaciones parciales de forma estructural, se propone una extensión de la topología reactiva introduciendo una arquitectura recurrente. Para garantizar la estabilidad de la optimización \textit{on-policy}, se diseña utilizando una única capa LSTM. Arquitecturas con múltiples capas recurrentes incrementan la susceptibilidad al desvanecimiento del gradiente (\textit{vanishing gradient}) sin ofrecer ventajas empíricas demostrables en entornos de navegación discreta espacial.
-
-El flujo de procesamiento propuesto para la red recurrente se define como:
+La implementación concreta tiene dos particularidades que conviene
+documentar y que diferencian este PPO del esquema estrictamente
+\textit{on-policy} descrito en la literatura introductoria:
 \begin{enumerate}
-    \item \textbf{Extractor de Características:} Una capa lineal inicial acoplada a una activación ReLU (e.g., $64$ nodos) que procesa la observación cruda $\mathbf{o}_t \in \mathbb{R}^{D_{\text{obs}}}$.
-    \item \textbf{Núcleo Recurrente (Memoria):} Una capa LSTM con tamaño de estado oculto $(h_t, c_t)$ de $64$ unidades. Esta capa integra temporalmente las secuencias de características extraídas.
-    \item \textbf{Cabeceras (\textit{Heads}):} La salida temporal de la LSTM alimenta directamente dos capas lineales finales separadas: una con activación Softmax para inferir la política $\pi(a_t \mid \mathbf{o}_{\leq t})$, y otra escalar para aproximar la función de valor $V(\mathbf{o}_{\leq t})$.
+    \item \textbf{Normalización del crítico}: la red
+    \texttt{ValueNetwork} devuelve tensores de forma $(B, 1)$, mientras
+    que los retornos tienen forma $(B,)$. Las versiones anteriores al
+    experimento de referencia comparaban cada retorno con cada valor
+    (producto exterior), lo que degradaba el aprendizaje del crítico.
+    En la implementación actual se aplica una reducción explícita
+    $V_\phi(\mathbf{o}_t).\mathrm{squeeze}(-1)$ antes del cálculo de la
+    pérdida.
+    \item \textbf{Reuso de transiciones}: aunque las ventajas y los
+    logaritmos de probabilidad se calculan con las muestras del episodio
+    recién terminado mediante GAE, cada transición se añade a un
+    \textit{buffer} circular de capacidad $10^5$ del que se muestrea un
+    mini-lote de $64$ transiciones por actualización. En consecuencia, la
+    actualización utiliza transiciones de episodios anteriores con
+    log-probabilidades y ventajas estimadas sobre políticas antiguas, lo
+    que acerca el comportamiento del método al de un algoritmo
+    \textit{off-policy}. Esta decisión se mantiene porque reproduce la
+    configuración empleada en los experimentos de referencia; en el
+    análisis de resultados se discute su efecto sobre la estabilidad y
+    la eficiencia.
 \end{enumerate}
 
-\begin{figure}[htbp]
-    \centering
-    \begin{tikzpicture}[
-        init/.style={circle, draw=blue!50, fill=blue!10, thick, minimum size=6mm},
-        hidden1/.style={circle, draw=orange!50, fill=orange!10, thick, minimum size=6mm},
-        hidden2/.style={circle, draw=green!50, fill=green!10, thick, minimum size=6mm},
-        outnode/.style={circle, draw=red!50, fill=red!10, thick, minimum size=6mm},
-        arrow/.style={->, >=stealth, semithick, black!60}
-        ]
+El actor (\texttt{SimpleQNetwork} usada como red de política) produce los
+logits de una distribución categórica sobre las acciones, de la que se
+muestrea $a_t$ durante el entrenamiento y de la que se toma la moda
+($\arg\max$) durante la evaluación \textit{greedy}. El crítico
+(\texttt{ValueNetwork}) estima $V_\phi(\mathbf{o}_t)$ y se entrena para
+minimizar el error cuadrático medio frente a los retornos descontados
+observados.
 
-        % Capa de Entrada
-        \node[init] (x1) at (0, 2.5) {$o_{Lid}$};
-        \node[init] (x2) at (0, 1) {$d_{gl}$};
-        \node at (0, 0.1) {$\vdots$};
-        \node[init] (xd) at (0, -1) {$\theta_{gl}$};
+Los hiperparámetros empleados en los experimentos de referencia se
+detallan en el capítulo de resultados.
 
-        % Capa Oculta 1
-        \node[hidden1] (h1_1) at (4, 2.5) {$h^{(1)}_1$};
-        \node[hidden1] (h1_2) at (4, 1) {$h^{(1)}_2$};
-        \node at (4, 0.1) {$\vdots$};
-        \node[hidden1] (h1_n) at (4, -1) {$h^{(1)}_M$};
+\section{Aprendizaje por currículo (opcional)}\label{sec:curriculum}
+Para mitigar la dispersión de la recompensa en las primeras etapas del
+entrenamiento se puede activar un currículo automático
+(\texttt{SuccessCurriculum}) inspirado en \textit{NavACL}
+\citep{xue2022using}. El currículo se compone de una secuencia de etapas
+$\mathcal{E}_1, \dots, \mathcal{E}_K$, cada una definida por el conjunto
+de mapas permitidos, una distancia máxima inicial robot-meta, un umbral
+de tasa de éxito, un número mínimo de episodios por etapa y un número
+máximo opcional. En cada episodio el entorno pregunta al currículo qué
+mapa puede seleccionar y qué distancia inicial máxima es admisible al
+muestrear la meta; al final del episodio, informa al currículo del
+resultado (éxito o fallo). Cuando la tasa de éxito en los últimos $W$
+episodios (ventana por defecto $W = 500$) alcanza el umbral de la etapa
+y se ha superado el número mínimo de episodios, el currículo avanza a
+la siguiente. Si una etapa no se supera en $N_{\max}$ episodios, se
+avanza por tiempo. La última etapa se mantiene hasta el final del
+entrenamiento.
 
-        % Capa Oculta 2
-        \node[hidden2] (h2_1) at (8, 2) {$h^{(2)}_1$};
-        \node at (8, 0.9) {$\vdots$};
-        \node[hidden2] (h2_n) at (8, -0.1) {$h^{(2)}_K$};
+El currículo no modifica ni al agente ni al bucle de entrenamiento: su
+estado se consulta exclusivamente desde el entorno
+(\texttt{BaseGridEnv(curriculum=\dots)}), y el entrenador se limita a
+registrar la etapa actual en la salida de \textit{TensorBoard}.
 
-        % Capa de Salida (Se muestran 4 nodos correspondientes al espacio unificado de acciones de ambos modelos)
-        \node[outnode] (y1) at (12, 1.5) {$Q_0$};
-        \node[outnode] (y2) at (12, 0.5) {$Q_1$};
-        \node[outnode] (y3) at (12, -0.5) {$Q_2$};
-        \node[outnode] (y4) at (12, -1.5) {$Q_3$};
+\section{Enmascarado de acciones inválidas (opcional)}\label{sec:action_masking}
+Cada robot sabe calcular, para un estado dado, qué acciones conducen a
+una colisión. Esta información se expone como una máscara binaria
+$m_t\in\{0,1\}^{|\mathcal{A}|}$ en la información auxiliar del entorno.
+Cuando se activa el enmascarado
+(\texttt{TrainerConfig(action\_masking=True)}), el entrenador pasa la
+máscara a \texttt{PPOAgent.act(\dots, action\_mask=\dots)}: los
+\textit{logits} de la política se corrigen con $-10^9$ en las acciones
+inválidas antes de muestrear, y la misma corrección se aplica durante
+el cálculo de la pérdida PPO para que las log-probabilidades sean
+consistentes entre el muestreo y la actualización. El enmascarado
+elimina las colisiones por diseño, pero no las trampas que requieren
+alejarse momentáneamente de la meta para rodear un obstáculo
+(mínimos locales), por lo que no sustituye al diseño de la recompensa.
 
-        % Conexiones Capa Entrada -> Capa Oculta 1
-        \foreach \i in {x1, x2, xd}
-        \foreach \j in {h1_1, h1_2, h1_n}
-        \draw[arrow] (\i) -- (\j);
-
-        % Conexiones Capa Oculta 1 -> Capa Oculta 2
-        \foreach \i in {h1_1, h1_2, h1_n}
-        \foreach \j in {h2_1, h2_n}
-        \draw[arrow] (\i) -- (\j);
-
-        % Conexiones Capa Oculta 2 -> Capa de Salida
-        \foreach \i in {h2_1, h2_n}
-        \foreach \j in {y1, y2, y3, y4}
-        \draw[arrow] (\i) -- (\j);
-
-        % Etiquetas de Capas
-        \node[above=0.3cm of x1] {\textbf{Entrada ($D_{obs}$)}};
-        \node[above=0.3cm of h1_1] {\textbf{Oculta 1 (Linear)}};
-        \node[above=0.3cm of h2_1] {\textbf{Oculta 2 (Linear)}};
-        \node[above=0.3cm of y1] {\textbf{Salida ($Q(s,a)$)}};
-
-    \end{tikzpicture}
-    \caption{Diagrama visual de conexiones de la arquitectura de la red SimpleQNetwork de control adaptada a los espacios de acción discretos del AGV ($|A|=3$ para \texttt{GridRobot} y $|A|=4$ para \texttt{GridRobotNotTurning}).}
-    \label{fig:tikz_mlp_arquitectura}
-\end{figure}
-\chapter{Configuración Experimental y Análisis de Resultados}
-
-\section{Configuración de los Escenarios de la Rejilla}
-Los experimentos numéricos y la evaluación de robustez se llevan a cabo sobre tres configuraciones de mapas estáticos cargados dinámicamente desde archivos de configuración serializados JSON \citep{grid_training_09.txt, grid_training_19.txt}:
-\begin{itemize}
-    \item \texttt{map\_obstacle\_free.json}: Escenario libre de obstáculos estáticos para validar la velocidad de convergencia teórica del AGV hacia la meta de navegación \citep{grid_training_09.txt}.
-    \item \texttt{map\_simple.json}: Escenario con un obstáculo geométrico rectangular central de rejilla fija para validar la maniobrabilidad básica de evasión de esquinas \citep{grid_training_09.txt}.
-    \item \texttt{map\_1\_obstacle.json}: Escenario con un obstáculo asimétrico para validar el escape reactivo estocástico implementado \citep{grid_training_19.txt}.
-\end{itemize}
-
-\section{Hiperparámetros de Entrenamiento de los Algoritmos}
-El entrenamiento de los agentes DQN y PPO se implementa utilizando los hiperparámetros estandarizados recopilados de tus scripts en el Cuadro~\ref{tab:hiperparametros_entrenamiento} \citep{grid_training_19.txt, networks.txt}.
-
-\begin{table}[htbp]
-    \centering
-    \caption{Parámetros de entrenamiento del optimizador Adam y del buffer de experiencia.}
-    \label{tab:hiperparametros_entrenamiento}
-    \begin{tabular}{lll}
-        \toprule
-        \textbf{Hiperparámetro} & \textbf{Valor DQN / PPO} & \textbf{Descripción Técnica en el Código} \\
-        \midrule
-        Tasa de Aprendizaje ($\alpha_{lr}$) & $10^{-3}$ & Tasa del optimizador Adam de la red de política \citep{grid_training_19.txt} \\
-        Factor de Descuento ($\gamma$) & $0.99$ & Tasa de descuento de ganancias futuras \citep{grid_training_19.txt} \\
-        Tamaño de Lote (\textit{Batch size}) & $64$ & Tamaño de muestra del optimizador estocástico \citep{grid_training_19.txt} \\
-        Pasos de Decaimiento ($\epsilon_{decay}$) & $1,000,000$ & Pasos del decaimiento extendido de exploración $\epsilon$ \citep{grid_training_19.txt} \\
-        Capacidad del Buffer & $100,000$ & Tamaño límite del buffer de replay de transiciones \citep{grid_training_19.txt} \\
-        Norma de Gradiente Máxima & $5.0$ & Límite del recorte del gradiente (\textit{gradient clipping}) \citep{grid_training_19.txt} \\
-        \bottomrule
-    \end{tabular}
-\end{table}
-\section{Espacio de Acciones Discreto}
-De acuerdo con el desarrollo lógico del software en el script \texttt{agent.txt}, el espacio de acciones se discretiza en tres decisiones de control de baja latencia para la navegación sobre la cuadrícula \citep{agent.txt}:
-\begin{itemize}
-    \item \textbf{Acción 0 (Avanzar):} Comando para avanzar en línea recta a velocidad constante ($v = 1.0$\,celda/paso, $\omega = 0.0$\,rad/s).
-    \item \textbf{Acción 1 (Girar Izquierda):} Comando de rotación pura a la izquierda ($v = 0.0$, $\omega = +\pi/2$\,rad/s).
-    \item \textbf{Acción 2 (Girar Derecha):} Comando de rotación pura a la derecha ($v = 0.0$, $\omega = -\pi/2$\,rad/s).
-\end{itemize}
-
-\section{Función de Recompensa Compuesta}
-La recompensa asimétrica compuesta $R(s_t, a_t)$ asocia incentivos dispersos de finalización y penalizaciones estocásticas continuas de seguridad para evitar colisiones \citep{grid_training_19.txt}:
-\begin{equation}
-    R(s_t, a_t) = R_{terminal} + \mathcal{R}_{progreso} - R_{time} - \mathcal{P}_{proximidad}
-\end{equation}
-donde:
-\begin{itemize}
-    \item $R_{terminal}$ es la recompensa estocástica de estados de parada terminales:
-    \begin{equation}
-        R_{terminal} = \begin{cases}
-            +100.0, & \text{si AGV alcanza meta (éxito)} \\
-            -100.0, & \text{si colisiona con obstáculo} \\
-            -100.0, & \text{si excede límite temporal de pasos } T_{max}
-        \end{cases}
-    \end{equation}
-    \item $\mathcal{R}_{progreso} = w_d \cdot (d_{t-1} - d_t)$ premia la aproximación radial real hacia la meta de destino.
-    \item $R_{time} = 0.1$ es una penalización constante por paso de tiempo para forzar al AGV a tomar rutas directas y cortas \citep{article_1743243135.pdf}.
-    \item $\mathcal{P}_{proximidad}$ es la penalización de seguridad activa si el AGV entra dentro de la zona crítica definida por el radio de seguridad de la rejilla ($\mathcal{D}_{safety} = d_{max} \cdot \frac{2}{3}$) \citep{grid_training_19.txt}:
-    \begin{equation}
-        \mathcal{P}_{proximidad} = \begin{cases}
-            \mathcal{P}_{max} \cdot \left(1.0 - \frac{d_{min}}{\mathcal{D}_{safety}}\right), & \text{si } d_{min} < \mathcal{D}_{safety} \\
-            0.0, & \text{en otro caso}
-        \end{cases}
-    \end{equation}
-    siguiendo los hiperparámetros del código real de entrenamiento, fijando la penalización máxima en $\mathcal{P}_{max} = 10^{-2}$ ($0.01$) \citep{grid_training_19.txt}.
-\end{itemize}
-
-\section{Mecanismo de Reinicio Suave (Soft Reset)}
-Para prevenir los frecuentes atrapamientos y estancamientos de la política en zonas de pasillos estrechos o esquinas estáticas (mínimos locales de la rejilla), se define el manejador de interrupciones \textbf{\texttt{InterruptHandler}} \citep{TrainingManager.txt}. El sistema monitorea continuamente una cola de doble extremo (\texttt{deque}) de tamaño fijo de las últimas acciones y recompensas acumuladas \citep{TrainingManager.txt}. La condición de atasco se determina heurísticamente mediante la función \texttt{is\_stuck}:
-\begin{equation}
-    \text{is\_stuck} = \text{std}(\mathbf{x}_{last\_30}) < \epsilon_{threshold} \quad \wedge \quad a_t \in \{1, 2\}
-\end{equation}
-Si el robot se encuentra oscilando o atascado, el manejador ejecuta de manera reactiva un reinicio suave del escenario de exploración (\textbf{\texttt{do\_soft\_reset}}) \citep{TrainingManager.txt}. Este algoritmo purga el buffer de memoria temporal del replay e incrementa temporalmente el factor de exploración estocástica $\epsilon$ del agente a un valor alto ($\epsilon \leftarrow 0.8$) para forzar al AGV a escapar del obstáculo de la rejilla de forma reactiva sin interrumpir drásticamente la continuidad del proceso de aprendizaje \citep{grid_training_19.txt, TrainingManager.txt}.
-
-\section{Arquitecturas de Redes Neuronales DQN y PPO}
-Las aproximaciones de valor y políticas del actor-crítico se estiman mediante perceptrones multicapa totalmente conectados (MLP) cuyas capas y dimensiones se detallan en el Cuadro~\ref{tab:arquitectura_redes_detallada} y se visualizan estructuralmente en la Figura~\ref{fig:tikz_mlp_arquitectura} \citep{networks.txt}.
-
-\begin{table}[htbp]
-    \centering
-    \caption{Parámetros y dimensiones estructurales de las redes neuronales DQN y PPO implementadas.}
-    \label{tab:arquitectura_redes_detallada}
-    \begin{tabular}{llcll}
-        \hline
-        \textbf{Red Neuronal} & \textbf{Capa / Tipo} & \textbf{Dimensión (Nodos)} & \textbf{Activación} & \textbf{Parámetro del Código} \\
-        \hline
-        \textbf{SimpleQNetwork} & Entrada & $D_{obs} = 12$ & Ninguna & Observaciones del sensor \citep{networks.txt} \\
-        (Agente DQN)            & Oculta 1 (Linear) & $253$ & ReLU & Extracción de características \\
-        & Oculta 2 (Linear) & $56$ & ReLU & Homogeneización dimensional \\
-        & Salida (Linear) & $3$ & Ninguna & Valores Q de acciones discretas \citep{networks.txt} \\
-        \hline
-        \textbf{ValueNetwork}   & Entrada & $D_{obs} = 12$ & Ninguna & Vector de estado perceptual \citep{networks.txt} \\
-        (Crítico PPO)           & Oculta 1 (Linear) & $H = 64$ & ReLU & Dimensión oculta del crítico \citep{grid_training_19.txt} \\
-        & Oculta 2 (Linear) & $64$ & ReLU & Representación de valor \\
-        & Salida (Linear) & $1$ & Ninguna & Estimación de valor $V(s)$ \citep{networks.txt} \\
-        \hline
-    \end{tabular}
-\end{table}
-
-\begin{figure}[htbp]
-    \centering
-%    \begin{tikzpicture}[
-%        init/.style={circle, draw=blue!50, fill=blue!10, thick, minimum size=6mm},
-%        hidden1/.style={circle, draw=orange!50, fill=orange!10, thick, minimum size=6mm},
-%        hidden2/.style={circle, draw=green!50, fill=green!10, thick, minimum size=6mm},
-%        out/.style={circle, draw=red!50, fill=red!10, thick, minimum size=6mm},
-%        arrow/.style={->, >=stealth, semithick, black!60}
-%        ]
-%
-%        % Capa de Entrada
-%        \node[init] (x1) at (0, 2) {$o_{Lid}$};
-%        \node[init] (x2) at (0, 1) {$d_{gl}$};
-%        \node at (0, 0.1) {$\vdots$};
-%        \node[init] (xd) at (0, -1) {$\theta_{gl}$};
-%
-%        % Capa Oculta 1
-%        \node[hidden1] (h1\_1) at (2.5, 2.5) {$h^{(1)}_1$};
-%        \node[hidden1] (h1\_2) at (2.5, 1.5) {$h^{(1)}_2$};
-%        \node at (2.5, 0.4) {$\vdots$};
-%        \node[hidden1] (h1\_n) at (2.5, -0.5) {$h^{(1)}_M$};
-%
-%        % Capa Oculta 2
-%        \node[hidden2] (h2\_1) at (5, 2) {$h^{(2)}_1$};
-%        \node at (5, 0.9) {$\vdots$};
-%        \node[hidden2] (h2\_n) at (5, -0.1) {$h^{(2)}_K$};
-%
-%        % Capa de Salida
-%        \node[out] (y1) at (7.5, 1.5) {$Q_0$};
-%        \node[out] (y2) at (7.5, 0.5) {$Q_1$};
-%        \node[out] (y3) at (7.5, -0.5) {$Q_2$};
-%
-%        % Conexiones Capa Entrada -> Capa Oculta 1
-%        \foreach \i in {x1, x2, xd}
-%        \foreach \j in {h1_1, h1_2, h1_n}
-%        \draw[arrow] (\i) -- (\j);
-%
-%        % Conexiones Capa Oculta 1 -> Capa Oculta 2
-%        \foreach \i in {h1_1, h1_2, h1_n}
-%        \foreach \j in {h2_1, h2_n}
-%        \draw[arrow] (\i) -- (\j);
-%
-%        % Conexiones Capa Oculta 2 -> Capa de Salida
-%        \foreach \i in {h2_1, h2_n}
-%        \foreach \j in {y1, y2, y3}
-%        \draw[arrow] (\i) -- (\j);
-%
-%        % Etiquetas de Capas
-%        \node[above=0.3cm of x1] {\textbf{Entrada ($D_{obs}$)}};
-%        \node[above=0.3cm of h1_1] {\textbf{Oculta 1 (Linear)}};
-%        \node[above=0.3cm of h2_1] {\textbf{Oculta 2 (Linear)}};
-%        \node[above=0.3cm of y1] {\textbf{Salida ($Q(s,a)$)}};
-%
-%    \end{tikzpicture}
-    \caption{Diagrama visual de conexiones de la arquitectura de la red SimpleQNetwork de control de avance y giro del AGV.}
-    \label{fig:tikz_mlp_arquitectura}
-\end{figure}
-
-\section{Arquitectura}
-Antes de empezar de ver los modelos,
+\subsection{Extensión recurrente (PPO-LSTM / PPO-GRU)}\label{sec:ppo_lstm}
+Si la observación local y la acción previa no son suficientes para
+desambiguar estados geométricamente idénticos, la red de política puede
+ampliarse con una capa recurrente que procese la historia de
+observaciones y acciones. En el repositorio se han implementado dos
+variantes: \texttt{PPOGRUAgent}, que mantiene un estado oculto a lo
+largo del episodio pero actualiza con transiciones individuales, y
+\texttt{RecurrentPPOAgent}, que trocea cada episodio en secuencias de
+longitud fija (\textit{sequence-chunked GAE}) y actualiza la red con
+el gradiente propagado a través de la secuencia. Ambas emplean una
+única capa GRU para evitar el desvanecimiento del gradiente observado
+en redes recurrentes más profundas sobre entornos discretos. El
+análisis experimental de estas variantes queda fuera del alcance de la
+comparación principal DQN/PPO y se presenta como estudio
+complementario en el capítulo de resultados.
