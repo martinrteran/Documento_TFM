@@ -1,5 +1,21 @@
 \chapter{Metodología de navegación reactiva de un AGV mediante aprendizaje por refuerzo profundo}\label{cap:diseno-arquitectura}
 
+En este capítulo se describe el sistema desarrollado para resolver el problema
+de navegación reactiva planteado en los capítulos anteriores. Se parte de la
+definición del problema y de su formulación matemática como proceso de
+decisión parcialmente observable,
+se detallan la arquitectura de control y los componentes del simulador
+(mapa, robot, sensor LiDAR y entorno Gymnasium), se formalizan la observación
+local y la función de recompensa compuesta, y se presentan las arquitecturas
+de red y los algoritmos de aprendizaje empleados por los agentes DQN y PPO.
+Las ampliaciones del esquema básico (currículo automático y
+enmascarado de acciones inválidas) se tratan al final como mecanismos
+opcionales utilizados en los experimentos descritos en el capítulo siguiente.
+Las utilidades operativas del entrenador (gestión de interrupciones,
+muestreo del replay \textit{buffer}, puntos de control) se describen en el
+Apéndice~\ref{apendice:implementacion}.
+
+\section{Definición del problema}\label{sec:definicion_problema}
 El problema que se aborda en este trabajo consiste en que un AGV se desplace
 de forma autónoma y segura desde una posición de partida $A$ hasta una
 posición objetivo $B$ dentro de un entorno plano con obstáculos estáticos,
@@ -16,36 +32,19 @@ que, a partir de esta información local e incompleta, decida en cada paso el
 movimiento a ejecutar de modo que el AGV alcance la meta en el menor número
 de pasos posible y sin colisionar.
 
-Para resolver este problema se ha desarrollado un sistema de aprendizaje por
-refuerzo profundo en el que la política de navegación se aprende en
-simulación. En él, el entorno plano se representa mediante una rejilla de
-ocupación y el movimiento del AGV se restringe a acciones discretas sobre
-ella, para las que se consideran dos modelos cinemáticos: uno con giro, en
-el que el vehículo avanza según su orientación y puede rotar sobre sí
-mismo, y otro sin giro, en el que se desplaza directamente a cualquiera de
-las cuatro celdas vecinas. El capítulo se organiza como sigue. En primer lugar, el
-problema descrito se formaliza como un proceso de decisión de Markov
-parcialmente observable (Sección~\ref{sec:pomdp}). A continuación se
-presentan la arquitectura de control y los componentes del simulador
-(Sección~\ref{sec:arquitectura}), el modelo cinemático del AGV sobre la
-rejilla (Sección~\ref{sec:cinematica}), el espacio de observaciones
-construido a partir del LiDAR y de la meta (Sección~\ref{sec:observacion})
-y la función de recompensa (Sección~\ref{sec:recompensa}). Después se
-describen las arquitecturas de red y los algoritmos de aprendizaje
-empleados por los agentes DQN y PPO (Sección~\ref{sec:redes}). Por último,
-se presentan tres ampliaciones opcionales del esquema básico, utilizadas en
-parte de los experimentos del capítulo siguiente: el aprendizaje por
-currículo (Sección~\ref{sec:curriculum}), el enmascarado de acciones
-inválidas (Sección~\ref{sec:action_masking}) y la extensión recurrente de
-la política (Sección~\ref{sec:ppo_lstm}). Las utilidades operativas del
-entrenador (gestión de interrupciones, muestreo del replay
-\textit{buffer}, puntos de control) se describen en el
-Apéndice~\ref{apendice:implementacion}.
+Para resolver este problema, la política de navegación se aprende en
+simulación mediante aprendizaje por refuerzo profundo. El entorno plano se
+representa mediante una rejilla de ocupación y el movimiento del AGV se
+restringe a acciones discretas sobre ella, para las que se consideran dos
+modelos cinemáticos (Sección~\ref{sec:cinematica}): uno con giro, en el que
+el vehículo avanza según su orientación y puede rotar sobre sí mismo, y
+otro sin giro, en el que se desplaza directamente a cualquiera de las
+cuatro celdas vecinas.
 
 \section{Formulación del problema como POMDP}\label{sec:pomdp}
 Puesto que el agente no dispone del mapa de la rejilla y sólo percibe el
 entorno a través del LiDAR y de las variables relativas a la meta, el
-problema descrito al inicio del capítulo se modela como un proceso de decisión de
+problema descrito en la sección anterior se modela como un proceso de decisión de
 Markov parcialmente observable (POMDP), definido por la tupla
 $\langle \mathcal{S}, \mathcal{A}, T, R, \Omega, O, \gamma \rangle$
 \citep{md2024novel,gao2025hierarchical}:
