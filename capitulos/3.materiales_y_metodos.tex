@@ -1,34 +1,68 @@
-\chapter{Diseño y arquitectura}\label{cap:diseno-arquitectura}
+\chapter{Metodología de navegación reactiva de un AGV mediante aprendizaje por refuerzo profundo}\label{cap:diseno-arquitectura}
 
-En este capítulo se describe el sistema desarrollado para resolver el problema
-de navegación reactiva planteado en los capítulos anteriores. Se parte de la
-formulación matemática como proceso de decisión parcialmente observable,
-se detallan la arquitectura de control y los componentes del simulador
-(mapa, robot, sensor LiDAR y entorno Gymnasium), se formalizan la observación
-local y la función de recompensa compuesta, y se presentan las arquitecturas
-de red y los algoritmos de aprendizaje empleados por los agentes DQN y PPO.
-Las ampliaciones del esquema básico (currículo automático y
-enmascarado de acciones inválidas) se tratan al final como mecanismos
-opcionales utilizados en los experimentos descritos en el capítulo siguiente.
-Las utilidades operativas del entrenador (gestión de interrupciones,
-muestreo del replay \textit{buffer}, puntos de control) se describen en el
+El problema que se aborda en este trabajo consiste en que un AGV se desplace
+de forma autónoma y segura desde una posición de partida $A$ hasta una
+posición objetivo $B$ dentro de un entorno plano con obstáculos estáticos,
+cuya disposición desconoce, sin colisionar en ningún momento con ellos. El
+vehículo no cuenta con un mapa previo del entorno, de modo que su única
+fuente de información sobre los obstáculos es un sensor de barrido láser
+(LiDAR) embarcado, de alcance limitado, que le proporciona en cada instante
+la distancia al obstáculo más próximo en un conjunto discreto de direcciones
+relativas a su propia orientación. A esta percepción local únicamente se
+añaden la distancia y el rumbo relativos a la meta; el AGV no recibe ninguna
+información sobre las zonas del entorno que quedan fuera del alcance del
+sensor. Se trata, por tanto, de obtener una política de navegación reactiva
+que, a partir de esta información local e incompleta, decida en cada paso el
+movimiento a ejecutar de modo que el AGV alcance la meta en el menor número
+de pasos posible y sin colisionar.
+
+Para resolver este problema se ha desarrollado un sistema de aprendizaje por
+refuerzo profundo en el que la política de navegación se aprende en
+simulación. En él, el entorno plano se representa mediante una rejilla de
+ocupación y el movimiento del AGV se restringe a acciones discretas sobre
+ella, para las que se consideran dos modelos cinemáticos: uno con giro, en
+el que el vehículo avanza según su orientación y puede rotar sobre sí
+mismo, y otro sin giro, en el que se desplaza directamente a cualquiera de
+las cuatro celdas vecinas. El capítulo se organiza como sigue. En primer lugar, el
+problema descrito se formaliza como un proceso de decisión de Markov
+parcialmente observable (Sección~\ref{sec:pomdp}). A continuación se
+presentan la arquitectura de control y los componentes del simulador
+(Sección~\ref{sec:arquitectura}), el modelo cinemático del AGV sobre la
+rejilla (Sección~\ref{sec:cinematica}), el espacio de observaciones
+construido a partir del LiDAR y de la meta (Sección~\ref{sec:observacion})
+y la función de recompensa (Sección~\ref{sec:recompensa}). Después se
+describen las arquitecturas de red y los algoritmos de aprendizaje
+empleados por los agentes DQN y PPO (Sección~\ref{sec:redes}). Por último,
+se presentan tres ampliaciones opcionales del esquema básico, utilizadas en
+parte de los experimentos del capítulo siguiente: el aprendizaje por
+currículo (Sección~\ref{sec:curriculum}), el enmascarado de acciones
+inválidas (Sección~\ref{sec:action_masking}) y la extensión recurrente de
+la política (Sección~\ref{sec:ppo_lstm}). Las utilidades operativas del
+entrenador (gestión de interrupciones, muestreo del replay
+\textit{buffer}, puntos de control) se describen en el
 Apéndice~\ref{apendice:implementacion}.
 
-\section{Formulación del problema como POMDP}
-Dado que el agente no dispone del mapa global de la rejilla y sólo observa el
-entorno a través de un sensor LiDAR de alcance limitado y de las variables
-relativas al objetivo, el problema se modela como un proceso de decisión de
+\section{Formulación del problema como POMDP}\label{sec:pomdp}
+Puesto que el agente no dispone del mapa de la rejilla y sólo percibe el
+entorno a través del LiDAR y de las variables relativas a la meta, el
+problema descrito al inicio del capítulo se modela como un proceso de decisión de
 Markov parcialmente observable (POMDP), definido por la tupla
 $\langle \mathcal{S}, \mathcal{A}, T, R, \Omega, O, \gamma \rangle$
 \citep{md2024novel,gao2025hierarchical}:
 \begin{itemize}
-    \item $\mathcal{S}$: espacio de estados reales, que incluye la pose del
-    robot $\mathbf{x}_t = (c_t, r_t, \theta_t)$ y la configuración completa
-    de los obstáculos del mapa activo.
-    \item $\mathcal{A}$: espacio discreto de acciones del robot. Su
-    cardinalidad depende del modelo cinemático empleado
-    ($|\mathcal{A}|=3$ para \texttt{GridRobot}, $|\mathcal{A}|=4$ para
-    \texttt{GridRobotNotTurning}).
+    \item $\mathcal{S}$: espacio de estados reales, formado por el estado
+    cinemático del robot y la configuración completa de los obstáculos del
+    mapa activo. El estado cinemático depende del modelo de movimiento
+    (Sección~\ref{sec:cinematica}): en el modelo con giro
+    (\texttt{GridRobot}) es la pose $\mathbf{x}_t = (c_t, r_t, \theta_t)$,
+    que incluye la orientación del vehículo, mientras que en el modelo sin
+    giro (\texttt{GridRobotNotTurning}) la orientación es constante y el
+    estado se reduce a la posición $\mathbf{p}_t = (c_t, r_t)$.
+    \item $\mathcal{A}$: espacio discreto de acciones del robot, cuya
+    cardinalidad también depende del modelo cinemático:
+    $|\mathcal{A}|=3$ en el modelo con giro (avanzar, girar a la izquierda
+    y girar a la derecha) y $|\mathcal{A}|=4$ en el modelo sin giro
+    (desplazamientos hacia el norte, sur, este y oeste).
     \item $T(s_{t+1}\mid s_t, a_t)$: función de transición de estados.
     En el entorno implementado la transición es determinista salvo por el
     muestreo del punto de inicio y de la meta en cada episodio.
@@ -55,11 +89,11 @@ estado de creencia no se mantiene de forma explícita, sino que la red
 neuronal lo aproxima a través de una observación aumentada o,
 alternativamente, de una capa recurrente. En este trabajo se opta por la
 primera vía: la observación se compone de la lectura actual del LiDAR y
-de las variables relativas al objetivo (Sección~\ref{sec:observacion}), y
-las posibles ambigüedades temporales se dejan como línea de trabajo
-futuro (Sección~\ref{sec:ppo_lstm}).
+de las variables relativas al objetivo (Sección~\ref{sec:observacion}).
+La segunda vía se ha implementado como extensión opcional
+(Sección~\ref{sec:ppo_lstm}) y se evalúa como estudio complementario.
 
-\section{Arquitectura de control}
+\section{Arquitectura de control}\label{sec:arquitectura}
 El sistema sigue el ciclo clásico del aprendizaje por refuerzo:
 el entorno simulado genera una observación $o_t$ y una recompensa $r_t$ a
 partir del estado del robot, el mapa y la meta; el agente elige una acción
@@ -112,7 +146,7 @@ colisión o superación del horizonte temporal) y la recompensa sólo
 puntúa el paso, lo que permite comparar funciones de recompensa distintas
 sin alterar la semántica de la tasa de éxito.
 
-\section{Modelo cinemático del AGV sobre rejilla}
+\section{Modelo cinemático del AGV sobre rejilla}\label{sec:cinematica}
 El vehículo opera sobre una cuadrícula discreta de celda fija
 $\Delta_{\text{cell}} = 10$ unidades de simulación. La pose se expresa en
 coordenadas enteras $\mathbf{p}_t = (c_t, r_t) \in \mathbb{Z}^2$ (columna y
@@ -295,7 +329,7 @@ términos con pesos parametrizables \citep{gao2025hierarchical,xue2022using}:
 \end{itemize}
 
 Esta formulación respeta el contrato de \texttt{RewardFunction} descrito
-en la Sección anterior: el entorno construye un \texttt{StepContext} con
+en la Sección~\ref{sec:arquitectura}: el entorno construye un \texttt{StepContext} con
 toda la información del paso ($d_t$, $d_{t-1}$, $d_{\min}$,
 $\mathbf{p}_t$, $\mathbf{p}_g$, acción previa, flags de meta/colisión,
 etc.) y la función de recompensa sólo lo puntúa. En consecuencia, la
@@ -459,8 +493,8 @@ elimina las colisiones por diseño, pero no las trampas que requieren
 alejarse momentáneamente de la meta para rodear un obstáculo
 (mínimos locales), por lo que no sustituye al diseño de la recompensa.
 
-\subsection{Extensión recurrente (PPO-LSTM / PPO-GRU)}\label{sec:ppo_lstm}
-Si la observación local y la acción previa no son suficientes para
+\section{Extensión recurrente (opcional)}\label{sec:ppo_lstm}
+Si la observación local no es suficiente para
 desambiguar estados geométricamente idénticos, la red de política puede
 ampliarse con una capa recurrente que procese la historia de
 observaciones y acciones. En el repositorio se han implementado dos
