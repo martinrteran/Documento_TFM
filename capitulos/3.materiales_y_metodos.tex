@@ -203,9 +203,33 @@ de desplazamientos cardinales
 Si la celda destino está fuera del mapa o es un obstáculo, el robot no se
 mueve y el entorno marca la transición como colisión.
 
-Los experimentos reportados en el capítulo de resultados utilizan
-exclusivamente el modelo \texttt{GridRobotNotTurning}; el modelo
-\texttt{GridRobot} está implementado y disponible como alternativa.
+\subsection{Elección del modelo cinemático}
+Los experimentos reportados en el capítulo de resultados utilizan el
+modelo sin giro (\texttt{GridRobotNotTurning}), mientras que el modelo con
+giro (\texttt{GridRobot}) se mantiene implementado como alternativa. La
+elección se justifica por tres motivos. En primer lugar, el espacio de
+estados cinemáticos del modelo sin giro es cuatro veces menor, ya que no
+incluye la orientación. En segundo lugar, cada acción válida produce un
+desplazamiento efectivo, de modo que la trayectoria entre dos celdas
+requiere, en general, menos pasos
+que en el modelo con giro, en el que los cambios de orientación consumen
+pasos adicionales sin acercar al robot a la meta. En tercer lugar, como
+consecuencia de lo anterior, el término de progreso $r_{\text{prog}}$
+(Sección~\ref{sec:recompensa}) aporta información en todos los pasos sin
+colisión, mientras que en el modelo con giro se anula en cada rotación, lo
+que hace la señal de recompensa más dispersa y dificulta la asignación de
+crédito a lo largo del episodio.
+
+Esta simplificación tiene un coste en realismo. El modelo sin giro
+corresponde a un vehículo holónomo, capaz de desplazarse en cualquier
+dirección sin reorientarse, como los AGV omnidireccionales con ruedas
+\textit{mecanum}, pero no a los AGV de tracción diferencial, que deben
+girar antes de cambiar de dirección. Además, al ser la orientación
+constante, el sistema de referencia en el que se expresan las lecturas
+del LiDAR y el rumbo a la meta (Sección~\ref{sec:observacion}) queda fijo
+respecto al mapa, por lo que la observación pierde su carácter egocéntrico.
+La evaluación sistemática del modelo con giro se plantea como línea de
+trabajo futuro.
 
 \section{Espacio de observaciones}\label{sec:observacion}
 En cada instante $t$, el agente recibe un vector denso
