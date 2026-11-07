@@ -188,13 +188,12 @@ Se reportan las siguientes métricas globales y por mapa:
 \end{itemize}
 
 Las comparaciones entre experimentos emplean el test $z$ de proporciones
-de dos muestras ($|z|>1{,}96$ equivale a significación estadística al
-$5\,\%$).
+de dos muestras ($|z|>1{,}96$ equivale a significación estadística al $5\%$).
 
 \section{Resultados del baseline PPO (test 25)}\label{sec:resultados_baseline}
 El agente PPO del baseline alcanza una tasa de éxito acumulada del
-$83\,\%$ en los primeros $4\,000$ episodios y asciende hasta el
-$93\,\%$ al llegar a los $40\,000$ episodios, con la entropía de la
+$83\%$ en los primeros $4\,000$ episodios y asciende hasta el
+$93\%$ al llegar a los $40\,000$ episodios, con la entropía de la
 política todavía en $0{,}55$ nats al final del entrenamiento. En la
 evaluación posterior (1\,000 episodios, semilla $0$), los resultados
 globales se recogen en el Cuadro~\ref{tab:baseline_global}.
@@ -217,14 +216,14 @@ globales se recogen en el Cuadro~\ref{tab:baseline_global}.
 \end{table}
 
 En la evaluación por mapa (Cuadro~\ref{tab:baseline_por_mapa}), tres de
-los cuatro escenarios superan el $91\,\%$ de éxito en ambas modalidades,
-mientras que \texttt{map\_simple} se estabiliza en torno al $75$--$78\,\%$
+los cuatro escenarios superan el $91\%$ de éxito en ambas modalidades,
+mientras que \texttt{map\_simple} se estabiliza en torno al $75$--$78\%$
 según la modalidad. La diferencia entre modalidades es especialmente
-visible en \texttt{map\_4\_square\_obstacle}, que pasa de $91{,}4\,\%$ en
-\textit{greedy} a $99{,}2\,\%$ al muestrear la política. Dicho de otro
+visible en \texttt{map\_4\_square\_obstacle}, que pasa de $91{,}4\%$ en
+\textit{greedy} a $99{,}2\%$ al muestrear la política. Dicho de otro
 modo: el modo \textit{sampled} cambia los \textit{timeouts} del
 \textit{greedy} por un número mayor de colisiones, lo que se traduce en
-una tasa de éxito global más alta ($93{,}9\,\%$ frente a $91{,}1\,\%$)
+una tasa de éxito global más alta ($93{,}9\%$ frente a $91{,}1\%$)
 pero a costa de más pasos cerca de los obstáculos.
 
 El análisis de las trayectorias fallidas muestra que la mayor parte de
@@ -269,7 +268,7 @@ estudio.
     \caption{Comparación de los experimentos complementarios frente al
     baseline PPO (test 25). Las columnas $z$ reportan el estadístico
     del test de proporciones frente al baseline sobre $1\,000$ episodios
-    por modalidad; $|z| > 1{,}96$ equivale a significación al $5\,\%$.}
+    por modalidad; $|z| > 1{,}96$ equivale a significación al $5\%$.}
     \label{tab:comparativa_experimentos}
     \begin{tabular}{lccccc}
         \toprule
@@ -289,14 +288,14 @@ estudio.
 \subsection{Aprendizaje por currículo (test 26)}
 El test 26 añade al baseline un currículo \texttt{SuccessCurriculum} de
 cinco etapas que empieza en el mapa vacío y añade progresivamente los
-mapas con obstáculos, con un umbral de éxito del $90\,\%$ (etapas 1--4)
-y del $85\,\%$ (etapa final) medido sobre una ventana de $500$
+mapas con obstáculos, con un umbral de éxito del $90\%$ (etapas 1--4)
+y del $85\%$ (etapa final) medido sobre una ventana de $500$
 episodios. Las etapas se activan en los episodios
 $0 / 1620 / 2120 / 3416 / 3916$, de modo que el agente llega al
 escenario completo tras unos $4\,000$ episodios. El currículo reduce
-sensiblemente el tiempo necesario para alcanzar el $80\,\%$ de éxito,
+sensiblemente el tiempo necesario para alcanzar el $80\%$ de éxito,
 pero la política final es estadísticamente indistinguible del baseline
-(SR \textit{sampled} $93{,}9\,\%$ en ambos). El resultado concuerda con
+(SR \textit{sampled} $93{,}9\%$ en ambos). El resultado concuerda con
 los informes de \citet{xue2022using}, en los que la ganancia del
 currículo se concentra en la fase inicial del entrenamiento.
 
@@ -306,9 +305,9 @@ la distancia geodésica (BFS 4-conexo desde la celda meta, respetando
 los obstáculos). La hipótesis era que señalar al agente el camino que
 rodea el obstáculo mejoraría el rendimiento en \texttt{map\_simple}.
 En la práctica, el modo \textit{sampled} no mejora de forma
-significativa (SR $93{,}4\,\%$ frente a $93{,}9\,\%$) y el modo
-\textit{greedy} empeora de manera clara (SR $85{,}0\,\%$ frente a
-$91{,}1\,\%$, $z = -4{,}2$) con un aumento notable de los \textit{loops}
+significativa (SR $93{,}4\%$ frente a $93{,}9\%$) y el modo
+\textit{greedy} empeora de manera clara (SR $85{,}0\%$ frente a
+$91{,}1\%$, $z = -4{,}2$) con un aumento notable de los \textit{loops}
 ($137$ frente a $76$). La señal geodésica parece inducir políticas
 determinísticas que explotan trayectorias de bordes y quedan atrapadas
 en ciclos cuando se evalúan en modo \textit{greedy}.
@@ -319,11 +318,11 @@ descrita en la Sección~\ref{sec:ppo_lstm}, con una capa GRU de $40$
 unidades y secuencias de longitud $32$. El test 28 reutilizó el bucle
 de entrenamiento del PPO estándar y descubrió que la clase recurrente
 no aplicaba el recorte de gradiente ni la máscara de padding; esto
-produjo un colapso del rendimiento desde el $90\,\%$ hasta el $25\,\%$
+produjo un colapso del rendimiento desde el $90\%$ hasta el $25\%$
 alrededor del episodio $25\,000$. El test 29 corrige ambos problemas y
 reduce la tasa de aprendizaje a $3\!\cdot\!10^{-4}$. El entrenamiento es
 entonces estable, pero la política final queda por debajo del baseline
-MLP (SR \textit{sampled} $89{,}8\,\%$, $z = -3{,}4$) con una entropía
+MLP (SR \textit{sampled} $89{,}8\%$, $z = -3{,}4$) con una entropía
 mucho menor ($0{,}27$ nats) y entre $95$ y $111$ \textit{loops} en ambas
 modalidades. Las trayectorias exitosas son casi óptimas (mediana del
 \textit{path ratio} $= 1{,}00$), pero la memoria recurrente, tal como
@@ -338,7 +337,7 @@ a $10$ en el baseline), manteniendo el resto de parámetros constantes.
 El margen de seguridad relativo al nuevo alcance se recalcula para que
 siga valiendo $6{,}67$ celdas en términos absolutos. El resultado es
 estadísticamente indistinguible del baseline en todas las métricas
-(SR \textit{sampled} $93{,}7\,\%$, $z = -0{,}2$), lo que sugiere que la
+(SR \textit{sampled} $93{,}7\%$, $z = -0{,}2$), lo que sugiere que la
 limitación principal del baseline no reside en la percepción.
 
 \subsection{Enmascarado de acciones inválidas (test 31)}
@@ -362,7 +361,7 @@ comportamiento observado.
 \textbf{Casi todas las variantes convergen a un rendimiento similar.}
 Los tests 25 (baseline), 26 (currículo), 27 (reward geodésico) y 30
 (LiDAR extendido) terminan en una ventana estrecha de tasa de éxito
-global ($\sim 93\,\%$ en modo \textit{sampled}). Las variantes
+global ($\sim 93\%$ en modo \textit{sampled}). Las variantes
 recurrentes (28 y 29) son algo peores. La convergencia a un
 rendimiento similar sugiere que, con el presupuesto de interacción
 estudiado, el cuello de botella no se encuentra en el aproximador ni en
@@ -370,7 +369,7 @@ la percepción, sino en la señal de aprendizaje y en los patrones
 geométricos a los que la política no sabe responder.
 
 \textbf{El modo de fallo persistente es un mínimo local geométrico.}
-\texttt{map\_simple} se estabiliza en torno al $78\,\%$ en todas las
+\texttt{map\_simple} se estabiliza en torno al $78\%$ en todas las
 variantes probadas. Las trayectorias fallidas siguen el patrón descrito
 por \citet{gao2025hierarchical}: el robot queda detenido o entra en un
 ciclo frente a un bolsillo cóncavo porque la salida requiere alejarse
@@ -384,9 +383,9 @@ implementada en los tests 28--29 tampoco lo hace.
 \textbf{La modalidad de evaluación cambia la lectura.} El modo
 \textit{greedy} elimina la variabilidad útil que, en modo
 \textit{sampled}, saca al agente de los ciclos: el baseline mejora de
-$91{,}1\,\%$ a $93{,}9\,\%$ al pasar de \textit{greedy} a
+$91{,}1\%$ a $93{,}9\%$ al pasar de \textit{greedy} a
 \textit{sampled}, y el test 27 muestra la mayor brecha
-($85{,}0\,\%$ frente a $93{,}4\,\%$). Esta diferencia es relevante para
+($85{,}0\%$ frente a $93{,}4\%$). Esta diferencia es relevante para
 una futura evaluación en un sistema real, donde una política demasiado
 determinista puede quedar atrapada en \textit{loops} que no aparecerían
 con un muestreo estocástico.

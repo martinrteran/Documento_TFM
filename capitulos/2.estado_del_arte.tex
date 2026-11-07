@@ -99,7 +99,7 @@ interacción \citep{shakya2023reinforcement,murphy2025reinforcement}. En el
 contexto de la navegación de AGV, cuatro familias concentran la mayor
 parte de la literatura relevante.
 
-Los \textbf{métodos basados en valor}, como las redes Q profundas (DQN) y
+Los métodos basados en valor, como las redes Q profundas (DQN) y
 sus extensiones Double DQN y Dueling DQN, aproximan la función de valor de
 acción óptima $Q^*(s,a)$ y derivan de ella una política codiciosa. Son
 métodos \textit{off-policy}, por lo que admiten el reuso de transiciones
@@ -113,7 +113,7 @@ cubrir los casos excepcionales. Más recientemente, Gao et al.
 reproducción retrospectiva de experiencia (HER) como política de alto nivel
 en un esquema jerárquico de navegación segura basado en subobjetivos.
 
-Los \textbf{métodos de gradiente de política} optimizan de manera directa
+Los métodos de gradiente de política optimizan de manera directa
 los parámetros de una política estocástica $\pi_\theta(a\mid s)$. El
 algoritmo de optimización de política próxima (PPO) limita el tamaño
 efectivo de las actualizaciones mediante un objetivo recortado
@@ -128,7 +128,7 @@ puede ser un inconveniente cuando el simulador es costoso de ejecutar
 eficiencia de muestreo es parte de la motivación para comparar PPO con DQN
 en el presente trabajo.
 
-Los \textbf{métodos actor-crítico off-policy para acciones continuas}
+Los métodos actor-crítico off-policy para acciones continuas
 (DDPG, TD3 y SAC) extienden el esquema actor-crítico al control continuo y
 reutilizan transiciones del buffer. DDPG emite comandos deterministas y
 sufre de inestabilidad y sobreestimación del valor Q; TD3 lo corrige con
@@ -144,7 +144,7 @@ son parte de la comparación experimental de este trabajo, cuyo espacio de
 acciones es discreto, pero son antecedentes necesarios para contextualizar
 las decisiones de diseño.
 
-Finalmente, los \textbf{enfoques jerárquicos} descomponen la navegación en
+Finalmente, los enfoques jerárquicos descomponen la navegación en
 decisiones de distintos niveles. Gao et al. \citep{gao2025hierarchical}
 proponen un marco jerárquico en el que una política de alto nivel genera
 subobjetivos dentro del alcance del sensor y una política de bajo nivel

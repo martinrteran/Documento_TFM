@@ -1,0 +1,13 @@
+% Envoltorio para exportar las figuras TikZ a PNG (ver generar_png.ps1).
+% Se compila desde la raíz del documento definiendo \figura, \ejeH y \ejeV.
+\documentclass[12pt,border=6pt,varwidth=17cm]{standalone}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[spanish]{babel}
+\usepackage{amsmath,amssymb}
+\usepackage{tikz}
+\usetikzlibrary{arrows,babel}
+\begin{document}
+\centering
+\input{imagenes/tikz/\figura}
+\end{document}

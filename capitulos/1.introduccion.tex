@@ -61,20 +61,19 @@ información relativa al objetivo (distancia y rumbo). El espacio de acciones
 es discreto y, según el modelo cinemático, se reduce a avanzar y girar
 ($|\mathcal{A}| = 3$) o a desplazamientos cardinales ($|\mathcal{A}| = 4$).
 
-En consecuencia, el problema abordado se limita a una simulación de
+En consecuencia, el problema abordado se plantea como una simulación de
 navegación en rejilla, y en ella se evalúa el comportamiento aprendido con
 dos algoritmos representativos: una red Q profunda (DQN) de familia
-\textit{off-policy} basada en valor y la optimización de política próxima
-(PPO) de familia \textit{on-policy} actor-crítico. No se estudian aquí, de
-forma intencionada, la transferencia a un AGV físico (\textit{sim-to-real}),
+\textit{off-policy} basada en valor, la optimización de política próxima
+(PPO) de familia \textit{on-policy} actor-crítico. Queda fuera del alcance de este trabajo el navegación de un AGV físico (\textit{sim-to-real}),
 la coordinación entre varios AGV ni la navegación en presencia de
-obstáculos dinámicos. Las conclusiones de la memoria se restringen a los
-algoritmos, mapas, hiperparámetros y métricas efectivamente evaluados.
+obstáculos dinámicos (que se plantean como trabajos futuro). Las conclusiones de la memoria se derivan de los
+algoritmos, mapas, hiperparámetros y métricas evaluados.
 
 La propuesta añade dos elementos a este marco básico. En primer lugar, una
-función de recompensa compuesta que suma a los términos terminales
-(éxito, colisión, tiempo agotado) un término de progreso proporcional a la
-reducción de la distancia a la meta, un pequeño coste por paso y una
+función de recompensa compuesta que suma a los términos ``terminales''
+(éxito, colisión, tiempo agotado), un término de progreso proporcional a la
+reducción de la distancia a la meta, un pequeño coste por paso, una
 penalización continua por proximidad a los obstáculos. En segundo lugar, un
 mecanismo heurístico de detección de estancamiento (\texttt{is\_stuck}) que
 observa la variabilidad reciente de la posición del AGV y, cuando el agente
@@ -101,7 +100,7 @@ profundo.
     distancia y el rumbo relativos al objetivo, de modo que la dimensión del
     estado observable se mantenga acotada al variar la resolución angular
     del sensor.
-    \item Diseñar y documentar la función de recompensa compuesta y el
+    \item Diseñar y documentar la propuesta de una función de recompensa original y el
     criterio heurístico de detección de estancamiento utilizados durante el
     entrenamiento, junto con el mecanismo de reinicio suave que se activa en
     los episodios bloqueados.

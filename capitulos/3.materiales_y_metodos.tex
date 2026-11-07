@@ -75,6 +75,32 @@ $\langle \mathcal{S}, \mathcal{A}, T, R, \Omega, O, \gamma \rangle$
     \item $\gamma \in [0,1)$: factor de descuento temporal.
 \end{itemize}
 
+La figura~\ref{fig:pomdp_escena} ilustra estos elementos sobre la rejilla.
+El estado real incluye la posición del AGV (y, en el modelo con giro, su
+orientación) y el mapa completo, pero el agente sólo accede a la
+observación local: los impactos de los rayos del LiDAR y la distancia y el
+rumbo a la meta $B$. Las acciones disponibles y el modo en que cada una
+modifica el estado dependen del modelo cinemático, y se detallan en la
+Sección~\ref{sec:cinematica}.
+
+\begin{figure}[htbp]
+    \centering
+    \input{imagenes/tikz/pomdp-escena}
+    \caption[Elementos del POMDP sobre la rejilla]{Elementos del POMDP
+    sobre la rejilla de ocupación: estado del AGV (posición $\mathbf{p}_t$
+    y orientación $\theta_t$) en un mapa con obstáculos rectangulares,
+    trayectoria recorrida desde el punto de partida $A$, meta
+    $B=\mathbf{p}_g$ y observación local, formada por la lectura más
+    próxima del LiDAR en cada uno de los $N_{\text{sec}}=8$ sectores
+    ($r^{(k)}$) y por la distancia $d_{\text{goal}}$ y el rumbo
+    $\theta_{\text{goal}}$ a la meta, medido respecto a la orientación del
+    robot. En el modelo sin giro la orientación es constante y el rumbo se
+    mide siempre respecto al eje $c$. El agente no conoce el mapa: sólo
+    percibe los obstáculos a través de los impactos de los rayos.
+    Fuente: Realización propia}
+    \label{fig:pomdp_escena}
+\end{figure}
+
 Como el estado real $s_t$ no es accesible, en la literatura de POMDP se
 define un estado de creencia $b_t(s)\in\mathcal{B}$ sobre $\mathcal{S}$ que
 se actualiza recursivamente mediante \citep{md2024novel}:
@@ -98,7 +124,7 @@ el entorno simulado genera una observación $o_t$ y una recompensa $r_t$ a
 partir del estado del robot, el mapa y la meta; el agente elige una acción
 discreta $a_t$ en función de su política $\pi(a\mid o)$; el entorno
 ejecuta la acción, decide si el episodio ha terminado y entrega la nueva
-observación. La \fig{fig:tfmcontrol} resume la estructura y el flujo de
+observación. La figura~\ref{fig:tfmcontrol} resume la estructura y el flujo de
 información.
 
 \begin{figure}[htbp]
@@ -179,7 +205,23 @@ el indicador de traslación, y
     \end{cases}
 \end{equation}
 Si la celda frontal está ocupada, el avance es un paso sin movimiento (se
-registra como colisión); los giros son siempre válidos.
+registra como colisión); los giros son siempre válidos. La
+figura~\ref{fig:cinematica_con_giro} muestra el efecto de cada acción sobre
+el estado del robot en la rejilla de la figura~\ref{fig:pomdp_escena}.
+
+\begin{figure}[htbp]
+    \centering
+    \input{imagenes/tikz/cinematica-con-giro}
+    \caption[Acciones del modelo con giro]{Acciones del modelo con giro
+    (\texttt{GridRobot}) y estado resultante, partiendo en todos los casos
+    del estado $(c_t, r_t, \theta_t)$ con el robot orientado hacia la
+    derecha. El robot sombreado y la flecha discontinua indican el estado
+    previo. Avanzar desplaza el robot a la celda frontal sin cambiar su
+    orientación; los giros cambian la orientación sin desplazarlo. Si la
+    celda frontal está ocupada, el avance se registra como colisión y el
+    estado no cambia. Fuente: Realización propia.}
+    \label{fig:cinematica_con_giro}
+\end{figure}
 
 \subsection{Modelo sin giro con desplazamiento cardinal (\texttt{GridRobotNotTurning})}
 Para este modelo la orientación es constante ($\theta = 0$) y el estado se
@@ -200,7 +242,22 @@ de desplazamientos cardinales
     \qquad \text{columnas} = \{\text{N}, \text{S}, \text{E}, \text{O}\}.
 \end{equation}
 Si la celda destino está fuera del mapa o es un obstáculo, el robot no se
-mueve y el entorno marca la transición como colisión.
+mueve y el entorno marca la transición como colisión. La
+figura~\ref{fig:cinematica_sin_giro} muestra el estado alcanzado con cada
+acción.
+
+\begin{figure}[htbp]
+    \centering
+    \input{imagenes/tikz/cinematica-sin-giro}
+    \caption[Acciones del modelo sin giro]{Acciones del modelo sin giro
+    (\texttt{GridRobotNotTurning}) y estado resultante a partir de la
+    posición $(c_t, r_t)$. Cada acción desplaza el robot a una de las
+    cuatro celdas vecinas (en discontinuo); como las filas crecen hacia
+    abajo, moverse al norte reduce $r_t$. La acción que conduce a una celda
+    ocupada (en rojo) provoca una colisión y el robot permanece en su
+    posición. Fuente: Realización propia.}
+    \label{fig:cinematica_sin_giro}
+\end{figure}
 
 \subsection{Elección del modelo cinemático}
 Los experimentos reportados en el capítulo de resultados utilizan el
@@ -351,7 +408,7 @@ términos con pesos parametrizables \citep{gao2025hierarchical,xue2022using}:
     acumulado de los $c_{\text{step}}$.
 \end{itemize}
 
-Esta formulación respeta el contrato de \texttt{RewardFunction} descrito
+Esta formulación corresponde con \texttt{RewardFunction}, descrito
 en la Sección~\ref{sec:arquitectura}: el entorno construye un \texttt{StepContext} con
 toda la información del paso ($d_t$, $d_{t-1}$, $d_{\min}$,
 $\mathbf{p}_t$, $\mathbf{p}_g$, acción previa, flags de meta/colisión,
