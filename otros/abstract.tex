@@ -3,10 +3,40 @@
 \section*{Abstract}
 \par\end{center}
 
-\lipsum[1-2]
+This work studies reactive map-less navigation of an automated guided
+vehicle (AGV) on a two-dimensional grid with static obstacles using deep
+reinforcement learning. The problem is formulated as a partially
+observable Markov decision process (POMDP): the agent does not receive
+the map, but a local observation of $18$ components made up of eight
+sectors of a simulated LiDAR and the distance and bearing to the goal.
+An original composite reward function is proposed, combining progress
+towards the goal, a per-step cost, an obstacle-proximity penalty and terminal terms,
+and value-based agents (DQN and Double DQN) and actor-critic agents
+(PPO, in a buffer-based variant and in the standard implementation) are
+trained and compared on four maps of increasing difficulty.
+
+Across seventeen experimental configurations, six of them trained with
+five seeds, two failure modes of the reactive policy are identified and
+each one is addressed with a specific remedy. Collisions next to thin
+walls, which capped the success rate on the hardest map at about
+$78\%$, are removed by masking invalid actions. Loops between cells with
+almost identical observations, a direct consequence of partial
+observability, drop from $42.6$ to $6.2$ per $1\,000$ episodes when the
+robot's last displacement is appended to the observation, a one-step
+implicit memory that proves more effective than a GRU recurrent network.
+With both mechanisms, PPO reaches a $99.4 \pm 0.4\%$ success rate under
+deterministic evaluation, against $87.9 \pm 3.8\%$ for Double DQN under
+the same conditions, with near-optimal routes and a seed-to-seed spread
+about ten times smaller. The results are restricted to a discrete
+four-action kinematics and static maps, and the action mask relies on
+privileged information from the environment; generalisation to unseen
+maps, continuous kinematics and transfer to a real robot are left as
+future work.
 
 \vspace{0.5cm}
 \begin{flushleft}
-\textbf{Keywords}: keyword1, keyword2, keyword3
+\textbf{Keywords}: deep reinforcement learning, map-less navigation,
+automated guided vehicle, POMDP, PPO, DQN, action masking, occupancy
+grid
 \end{flushleft}
 \selectlanguage{spanish}%

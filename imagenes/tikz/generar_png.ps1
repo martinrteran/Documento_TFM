@@ -22,5 +22,18 @@ try {
             Write-Output "imagenes\$job.png"
         }
     }
+    # Figuras sin variante de ejes (plano continuo XY)
+    $figurasXY = @{
+        "cinematica-diferencial" = "Cinematica_Diferencial"
+        "cinematica-ackermann"   = "Cinematica_Ackermann"
+    }
+    foreach ($fig in $figurasXY.Keys) {
+        $job = $figurasXY[$fig]
+        $cmd = "\def\figura{$fig}\input{imagenes/tikz/png-standalone}"
+        pdflatex -interaction=nonstopmode -halt-on-error -output-directory="$tmp" -jobname="$job" $cmd | Out-Null
+        if ($LASTEXITCODE -ne 0) { Write-Error "Fallo al compilar $job (ver $tmp\$job.log)"; continue }
+        pdftoppm -png -r 300 -singlefile "$tmp\$job.pdf" "imagenes\$job"
+        Write-Output "imagenes\$job.png"
+    }
 }
 finally { Pop-Location }

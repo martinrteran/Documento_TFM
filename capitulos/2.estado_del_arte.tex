@@ -51,7 +51,15 @@ construirlo y mantenerlo. Su rendimiento depende de la representación del
 entorno y del coste de replanificar cuando esa representación cambia. En
 entornos poco estructurados o con alta variabilidad, el replanteamiento
 puede ser costoso y la calidad del resultado degrada rápidamente con el
-ruido sensorial \citep{sivashangaran2023deep}.
+ruido sensorial \citep{sivashangaran2023deep}. En el caso específico de
+los AGV, la planificación también se ha abordado como un problema de
+optimización. \citet{bayona2024comparative} generan trayectorias sobre
+mapas de ocupación geométricos del recinto industrial teniendo en cuenta
+las limitaciones de movilidad del vehículo, y comparan para ello tres
+metaheurísticas: algoritmos genéticos, optimización por enjambre de
+partículas y búsqueda de patrones. Este tipo de planificación presupone
+un mapa completo del entorno, que es precisamente la información de la
+que prescinde una política sin mapa previo.
 
 Los métodos reactivos calculan la acción directamente a partir de la
 información local, sin construir una ruta explícita. Los campos
@@ -75,7 +83,17 @@ política aprendida supera al controlador APF al reducir la frecuencia con
 que el robot queda atrapado en mínimos locales, aunque a costa de un
 proceso de entrenamiento más laborioso. Este trabajo es relevante porque
 documenta el problema del mínimo local sobre escenarios conceptualmente
-análogos a los que se evalúan en esta tesis.
+análogos a los que se evalúan en esta tesis. En la misma línea de
+inspiración biológica, \citet{rodrigo2023gbnn} emplean una red neuronal
+bioinspirada de Glasius (GBNN), completada con un planificador de
+movimientos, para que un robot de desinfección por luz ultravioleta
+(UV-C) recorra por completo un recinto. El espacio de trabajo se
+discretiza en una rejilla de celdas en la que se marcan los obstáculos,
+conocidos de antemano, y las celdas ya visitadas, que el planificador
+trata también como obstáculos para no repetir recorridos. La
+representación del entorno es análoga a la rejilla de ocupación de esta
+tesis, aunque el problema que resuelven, la cobertura completa con un
+mapa conocido, es distinto de la navegación sin mapa hacia un objetivo.
 
 El aprendizaje por refuerzo propone una tercera vía: optimizar la política
 directamente mediante la interacción con el entorno y una señal escalar de
@@ -139,7 +157,17 @@ mínimos locales \citep{sivashangaran2023deep,xue2022using}. Sivashangaran
 y Eskandarian \citep{sivashangaran2023deep} comparan DDPG, TD3 y SAC en
 exploración de AGV sin mapa previo sobre dos entornos de entrenamiento y
 un tercero de evaluación sin reentrenamiento, con el fin de medir la
-generalización fuera de la distribución de entrenamiento. Estos métodos no
+generalización fuera de la distribución de entrenamiento. Las distintas
+familias también pueden combinarse en un mismo controlador.
+\citet{barreno2023comparison,barreno2025novel} proponen un sistema de
+seguimiento de trayectoria para vehículos autónomos en el que un agente
+DDPG regula la velocidad longitudinal y un agente DQN controla el
+movimiento lateral, ambos entrenados sobre un modelo del vehículo de tres
+grados de libertad que incorpora la geometría de la carretera percibida.
+Frente a un control de crucero adaptativo (ACC), el sistema reduce la
+duración de los picos de sobreaceleración (\textit{jerk}), aunque el ACC
+resulta menos sensible a los cambios de curvatura
+\citep{barreno2023comparison}. Los métodos actor-crítico continuos no
 son parte de la comparación experimental de este trabajo, cuyo espacio de
 acciones es discreto, pero son antecedentes necesarios para contextualizar
 las decisiones de diseño.
@@ -150,11 +178,11 @@ proponen un marco jerárquico en el que una política de alto nivel genera
 subobjetivos dentro del alcance del sensor y una política de bajo nivel
 basada en Safe RL ejecuta movimientos locales libres de colisión; el
 esquema está pensado para evitar los mínimos locales en entornos interiores.
-La propuesta de este trabajo no es jerárquica, pero el mecanismo de
-reinicio suave que se describe en el capítulo de diseño comparte con los
-métodos jerárquicos la intención de disponer de un recurso específico para
-los episodios en los que la política reactiva se detiene antes de alcanzar
-la meta.
+La propuesta de este trabajo no es jerárquica. En su lugar, analiza
+experimentalmente por qué la política reactiva se detiene antes de
+alcanzar la meta y aplica a cada causa un remedio específico dentro de la
+propia política: el enmascarado de acciones frente a las colisiones y una
+memoria de un paso frente a los ciclos.
 
 \section{Observación local y observabilidad parcial}
 Cuando el controlador recibe únicamente medidas locales, la observación
@@ -182,8 +210,26 @@ geometría cercana y la posición del objetivo. En el extremo opuesto, Gao
 et al. \citep{gao2025hierarchical} construyen un mapa local de obstáculos
 discretizado en celdas, mientras que Guo et al. \citep{guo2025map}
 describen políticas basadas únicamente en el vector de lecturas de
-distancia y la pose relativa de la meta. La elección depende del coste de
-cómputo, de la riqueza del simulador y de la tarea.
+distancia y la pose relativa de la meta. Un único sensor de rango basta
+también para tareas reactivas validadas sobre vehículos industriales
+reales: \citet{sierragarcia2023development} procesan la nube de puntos
+de un LiDAR de seguridad para detectar y seguir a una persona con un AGV,
+aplican filtros espaciales y temporales que descartan obstáculos y
+detectan cruces entre personas y vehículo, y calculan la dirección de
+referencia mediante un algoritmo de persecución pura (\textit{pure
+pursuit}). La elección depende del coste de cómputo, de la riqueza del
+simulador y de la tarea.
+
+La forma de discretizar la observación también influye en el
+aprendizaje. En un controlador basado en Q-learning tabular,
+\citet{gilmacia2025exponential} comparan la discretización uniforme del
+estado con discretizaciones exponenciales y cuadráticas, que concentran
+más niveles en torno al error nulo, y comprueban que estas últimas
+reducen el tiempo de convergencia y el error en régimen permanente
+(Sección~\ref{sec:rl-discreto}). Aunque su aplicación es el control de
+un aerogenerador, el resultado ilustra que la resolución de la
+observación no tiene por qué ser uniforme en todo el rango de las
+variables.
 
 Cuando la ambigüedad persiste, la literatura introduce memoria temporal.
 Las arquitecturas recurrentes (LSTM, GRU) procesan una ventana histórica
@@ -194,10 +240,14 @@ Decision Transformers, que modelan la secuencia completa de observaciones,
 acciones y retornos \citep{ge2024deep}. Estas extensiones no son
 automáticas: incluir memoria recurrente mejora el rendimiento cuando la
 ambigüedad temporal es la causa principal del fallo, pero no en todos los
-problemas parcialmente observables. En este trabajo, la observación se
-amplía con la acción previa $a_{t-1}$ como forma minimalista de memoria;
-la ampliación a una política recurrente se discute como extensión en el
-capítulo de diseño.
+problemas parcialmente observables. Además, \citet{singh1994learning}
+muestran que, en un POMDP, una política estocástica sin memoria puede
+superar a cualquier política determinista sin memoria, lo que anticipa
+diferencias entre evaluar una política aprendida de forma voraz o
+muestreando sus acciones. En este trabajo se comparan dos formas de
+memoria: una política recurrente con GRU y una memoria implícita mínima,
+que amplía la observación con el último desplazamiento del robot y, por
+tanto, con la acción previa $a_{t-1}$.
 
 \section{Diseño de recompensa, currículo y seguridad}
 La función de recompensa condiciona de forma directa el comportamiento que
@@ -212,10 +262,21 @@ coste por paso que penaliza las rutas excesivamente largas y, cuando la
 seguridad importa, una penalización continua por proximidad a los
 obstáculos. Esquemas de este tipo se emplean en los trabajos revisados
 sobre navegación map-less \citep{gao2025hierarchical,guo2025map,xue2022using}
-y son la base de la función de recompensa compuesta que se propone en el
-capítulo de diseño. La escala relativa de cada término determina el
+y son el punto de partida de la función de recompensa compuesta, de
+diseño propio, que se propone en el capítulo de metodología. La escala relativa de cada término determina el
 compromiso entre eficiencia, seguridad y tasa de éxito, por lo que es
 imprescindible documentar las magnitudes empleadas.
+
+El signo de la recompensa también condiciona la exploración.
+\citet{sierragarcia2020exploring} distinguen entre estrategias de
+recompensa solo positivas (O-P) y positivas-negativas (P-N), y muestran
+en el control del ángulo de paso de un aerogenerador que las segundas
+estabilizan mejor la potencia de salida y reducen el error a lo largo del
+tiempo. Ambas categorías se describen en la
+Sección~\ref{sec:fund-recompensa}. Con esta terminología, la función de
+recompensa de este trabajo es de tipo P-N, ya que combina términos
+positivos, como el progreso hacia la meta y la recompensa por alcanzarla,
+con costes por paso, por proximidad y por colisión.
 
 El aprendizaje por currículo modifica la distribución de las tareas de
 entrenamiento, comenzando con escenarios más fáciles y aumentando
@@ -226,10 +287,22 @@ automática las poses iniciales de entrenamiento utilizando métricas
 geométricas (distancia geodésica, holgura ante obstáculos, ángulo relativo
 al objetivo) y el valor Q estimado por el crítico; en sus experimentos, el
 currículo mejora el rendimiento en torno a un 40\,\% respecto al
-entrenamiento con poses aleatorias. En este trabajo no se emplea
-aprendizaje por currículo explícito, pero el mecanismo de reinicio suave
-comparte con él la idea de modular dinámicamente la distribución de
-estados de inicio para desatascar la política.
+entrenamiento con poses aleatorias. En este trabajo se probó un
+currículo por etapas de dificultad creciente, que aceleró la fase inicial
+del aprendizaje sin cambiar el rendimiento final del agente.
+
+Otra forma de intervenir en el entrenamiento consiste en supervisar el
+propio proceso de aprendizaje. \citet{sierragarcia2022wind} combinan un
+controlador basado en aprendizaje por refuerzo con un regulador PID, que
+sostiene el control durante los primeros episodios, cuando el agente aún
+carece de experiencia, y con un observador del aprendizaje que ajusta la
+tasa y la ventana de exploración para reducir las oscilaciones durante el
+entrenamiento (Sección~\ref{sec:exploracion-explotacion}). En el control
+del ángulo de paso de un aerogenerador, esta arquitectura acelera la
+convergencia hasta un 37\,\%. Una idea afín aparece en
+este trabajo al limitar la divergencia entre políticas sucesivas en PPO:
+el control de cuánto cambia la política en cada actualización resulta
+decisivo para evitar una convergencia prematura.
 
 La navegación segura constituye una línea de investigación propia, con
 objetivos y métodos distintos de añadir una penalización por colisión a la
@@ -259,15 +332,38 @@ jerárquicos, Safe RL). Las conclusiones de cada estudio dependen del
 robot, del simulador, de los sensores y del protocolo experimental
 empleados, por lo que no son directamente intercambiables.
 
+% --- OPCIÓN COMENTADA: antecedente directo en control de AGV con RL ---
+% Para activarla, quitar el símbolo de comentario de las líneas siguientes.
+% Las dos claves ya están en bibliografia.bib.
+%
+% El aprendizaje por refuerzo aplicado a AGV industriales no se limita a
+% la navegación. \citet{sierragarcia2024combining} combinan un controlador
+% basado en aprendizaje por refuerzo con reguladores PI de velocidad de
+% cada rueda para resolver a la vez el control de la velocidad
+% longitudinal y el seguimiento de trayectoria de un AGV híbrido
+% triciclo-diferencial, y obtienen errores en torno a un 70\,\% menores que
+% los de un PID optimizado mediante algoritmos genéticos. En un trabajo
+% posterior, \citet{sierragarcia2024federated} extienden el enfoque a una
+% flota de AGV mediante aprendizaje por refuerzo discreto federado: cada
+% vehículo comparte la variación de su política tabular con un servidor
+% central, que las combina en una política de grupo, lo que acelera el
+% aprendizaje un 36\,\% de media. Estos trabajos abordan el seguimiento
+% de una ruta conocida con un modelo cinemático y dinámico continuo,
+% mientras que esta tesis se centra en la navegación reactiva sin mapa
+% sobre una rejilla de ocupación, con políticas basadas en redes
+% neuronales profundas.
+% --- FIN DE LA OPCIÓN COMENTADA ---
+
 El presente trabajo acota la pregunta a la navegación de un AGV en una
 rejilla bidimensional con obstáculos estáticos y espacio de acciones
 discreto. Sobre esta base, se compara un algoritmo \textit{off-policy}
 basado en valor (DQN) con un algoritmo \textit{on-policy} actor-crítico
 (PPO), se emplea una observación compuesta por lecturas de LiDAR
 sectorizado y variables relativas al objetivo, se adopta una función de
-recompensa compuesta con penalización por proximidad y se incorpora un
-mecanismo heurístico de detección de estancamiento con reinicio suave para
-los episodios bloqueados. La aportación específica se evalúa en los
+recompensa compuesta con penalización por proximidad y se incorporan el
+enmascarado de acciones inválidas y una memoria implícita del último
+desplazamiento para eliminar las colisiones y los ciclos de la política
+reactiva. La aportación específica se evalúa en los
 escenarios y con las métricas descritos en los capítulos de diseño y de
 resultados; no se extrapolará a navegación física, a obstáculos dinámicos,
 a la coordinación entre varios AGV ni a garantías formales de seguridad

@@ -3,413 +3,818 @@
 En este capítulo se presentan la configuración experimental y los
 resultados obtenidos al entrenar y evaluar los agentes descritos en el
 Capítulo~\ref{cap:diseno-arquitectura}. Primero se detallan los
-escenarios de la rejilla, los hiperparámetros de los algoritmos, el
-entorno de ejecución y el protocolo de evaluación. A continuación se
-presentan los resultados del agente PPO de referencia (test 25),
-seguidos de una serie de estudios complementarios que modifican un único
-elemento del baseline para medir su efecto: aprendizaje por currículo,
-reward geodésico, política recurrente (GRU), alcance del LiDAR y
-enmascarado de acciones inválidas. Al final del capítulo se discuten los
-patrones observados.
+escenarios, la observación, la recompensa, los hiperparámetros, el
+entorno de ejecución y el protocolo de evaluación. A continuación, los
+resultados se exponen en el orden en que se obtuvieron, porque cada
+experimento responde a una pregunta planteada por el anterior: el agente
+PPO de referencia (test 25), las variantes que no lo mejoraron, la
+memoria recurrente, el enmascarado de acciones, la memoria implícita del
+último desplazamiento, los agentes DQN y el PPO estándar. El capítulo
+cierra con la comparación global entre DQN y PPO sobre cinco semillas de
+entrenamiento y con la discusión de los resultados.
 
 \section{Configuración experimental}\label{sec:config_experimental}
 
 \subsection{Escenarios de la rejilla}
 Los experimentos se realizan sobre cuatro mapas estáticos de ocupación,
-almacenados como ficheros JSON y cargados en tiempo de ejecución.
-Durante el entrenamiento, el mapa se selecciona de manera uniforme al
-inicio de cada episodio (variante multi-mapa del entorno
-\texttt{Grid\_Robot\_Sections\_Env\_MultiMap}); durante la evaluación, el
-protocolo se describe en la Sección~\ref{sec:protocolo}. Los mapas
-empleados se resumen en el Cuadro~\ref{tab:mapas}.
+almacenados como ficheros JSON y cargados en tiempo de ejecución
+(Figura~\ref{fig:mapas} y Tabla~\ref{tab:mapas}). Durante el
+entrenamiento, el
+mapa se elige al azar con probabilidad uniforme al comienzo de cada
+episodio, y las posiciones de partida y de meta se muestrean entre las
+celdas libres. La evaluación emplea los mismos cuatro mapas con
+posiciones de partida y de meta nuevas (Sección~\ref{sec:protocolo}).
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=\textwidth]{imagenes/resultados/mapas.pdf}
+    \caption[Mapas de ocupación de los experimentos]{Mapas de ocupación
+    empleados en los experimentos (ancho $\times$ alto en celdas y número
+    de celdas ocupadas). Las celdas ocupadas se muestran en gris oscuro.
+    Fuente: Realización propia.}
+    \label{fig:mapas}
+\end{figure}
 
 \begin{table}[htbp]
     \centering
-    \caption{Mapas de ocupación empleados en los experimentos. Las
-    celdas ocupadas incluyen tanto los obstáculos declarados como su
-    posible solapamiento.}
+    \caption[Mapas de ocupación de los experimentos]{Mapas de ocupación
+    empleados en los experimentos.}
     \label{tab:mapas}
-    \begin{tabular}{llc}
+    \begin{tabular}{lccl}
         \toprule
-        \textbf{Mapa} & \textbf{Descripción} & \textbf{Celdas ocupadas} \\
+        \textbf{Mapa} & \textbf{Tamaño} & \textbf{Ocupadas} & \textbf{Descripción} \\
         \midrule
-        \texttt{map\_obstacle\_free}  & Rejilla vacía, caso de control. & $0$ \\
-        \texttt{map\_1\_obstacle}      & Un obstáculo asimétrico. & $\sim 20$ \\
-        \texttt{map\_4\_square\_obstacle} & Cuatro obstáculos rectangulares. & $\sim 60$ \\
-        \texttt{map\_simple}           & 14 obstáculos solapados que forman un bolsillo cóncavo. & $121$ \\
+        \texttt{obstacle\_free} & $40 \times 60$ & $0$ & Rejilla vacía, caso de control \\
+        \texttt{1\_obstacle} & $40 \times 60$ & $200$ & Un bloque central de $20 \times 10$ \\
+        \texttt{4\_obstacles} & $60 \times 60$ & $400$ & Cuatro bloques de $10 \times 10$ \\
+        \texttt{simple\_map} & $40 \times 60$ & $121$ & 14 obstáculos pequeños y finos \\
         \bottomrule
     \end{tabular}
 \end{table}
 
-El escenario \texttt{map\_obstacle\_free} valida que la política aprenda
-el término de progreso aislado del resto de términos de la recompensa.
-Los escenarios con obstáculos aumentan progresivamente la densidad
-geométrica; \texttt{map\_simple} es el más exigente porque contiene una
-geometría cóncava en la que la política reactiva debe alejarse
-momentáneamente de la meta para rodear el bolsillo, lo que configura
-precisamente el modo de fallo por mínimo local descrito por
-\citet{gao2025hierarchical}.
+El mapa \texttt{obstacle\_free} comprueba que la política aprende a
+dirigirse a la meta sin obstáculos. Los mapas \texttt{1\_obstacle} y
+\texttt{4\_obstacles} contienen bloques grandes y compactos que el robot
+debe rodear. El mapa \texttt{simple\_map} es el más difícil: sus 14
+obstáculos incluyen una pared de $20$ celdas que parte del borde,
+segmentos de una sola celda de grosor y una escalera diagonal, que crean
+pasillos estrechos y esquinas en las que el robot pasa muchos pasos junto
+a una pared.
 
-\subsection{Hiperparámetros del agente PPO}
-El experimento de referencia (test 25) entrena el agente
-\texttt{PPOAgent} con los hiperparámetros del
-Cuadro~\ref{tab:hiperparametros_entrenamiento}. Todos los experimentos
-posteriores (tests 26--31) heredan esta misma configuración y modifican
-un único elemento, descrito en cada apartado.
-
-\begin{table}[htbp]
-    \centering
-    \caption{Hiperparámetros del agente PPO en el experimento de
-    referencia (test 25).}
-    \label{tab:hiperparametros_entrenamiento}
-    \begin{tabular}{lll}
-        \toprule
-        \textbf{Hiperparámetro} & \textbf{Valor} & \textbf{Descripción} \\
-        \midrule
-        Tasa de aprendizaje $\alpha_{lr}$ & $10^{-3}$ & Optimizador Adam, igual para actor y crítico. \\
-        Factor de descuento $\gamma$ & $0{,}99$ & Descuento temporal del retorno. \\
-        $\lambda$ de GAE & $0{,}95$ & Suavizado del estimador de ventajas. \\
-        Clip PPO $\varepsilon$ & $0{,}20$ & Recorte del objetivo \textit{surrogate}. \\
-        Coef.\ de valor $c_v$ & $0{,}50$ & Peso de la pérdida del crítico. \\
-        Coef.\ de entropía $c_H$ & $0{,}01$ & Peso del término de entropía. \\
-        Tamaño de lote & $64$ & Mini-lote del optimizador. \\
-        Capacidad del \textit{buffer} & $10^{5}$ & \textit{Buffer} circular de transiciones. \\
-        Norma máx.\ de gradiente & $5{,}0$ & \textit{Gradient clipping} aplicado al optimizador. \\
-        Episodios de entrenamiento & $40\,000$ & Horizonte total. \\
-        Horizonte por episodio & $400$ pasos & Trunca el episodio si no se alcanza la meta antes. \\
-        Pasos por actualización & $4$ & \texttt{TrainerConfig.eps\_step}, actualiza cada 4 pasos. \\
-        \bottomrule
-    \end{tabular}
-\end{table}
-
-\subsection{Hiperparámetros del agente DQN}
-Para el agente DQN basado en \texttt{GridAgent} se emplean los
-hiperparámetros del Cuadro~\ref{tab:hiperparametros_dqn}, utilizando la
-variante Double DQN con red objetivo congelada.
-
-\begin{table}[htbp]
-    \centering
-    \caption{Hiperparámetros del agente DQN (\texttt{GridAgent}).}
-    \label{tab:hiperparametros_dqn}
-    \begin{tabular}{lll}
-        \toprule
-        \textbf{Hiperparámetro} & \textbf{Valor} & \textbf{Descripción} \\
-        \midrule
-        Tasa de aprendizaje $\alpha_{lr}$ & $10^{-3}$ & Optimizador Adam. \\
-        Factor de descuento $\gamma$ & $0{,}99$ & Descuento temporal del retorno. \\
-        $\varepsilon_{\max}$ & $1{,}00$ & Probabilidad inicial de exploración. \\
-        $\varepsilon_{\min}$ & $0{,}05$ & Probabilidad asintótica de exploración. \\
-        $\tau_{\varepsilon}$ & $10^{5}$ pasos & Constante de decaimiento exponencial de $\varepsilon$. \\
-        Frec.\ actualización red objetivo & $10^{3}$ pasos & Sincroniza $\theta^- \leftarrow \theta$. \\
-        Tamaño de lote & $64$ & Mini-lote del optimizador. \\
-        Capacidad del \textit{buffer} & $10^{5}$ & \textit{Buffer} circular de transiciones. \\
-        Norma máx.\ de gradiente & $5{,}0$ & \textit{Gradient clipping}. \\
-        Variante & Double DQN & Desacopla selección y evaluación de acciones. \\
-        \bottomrule
-    \end{tabular}
-\end{table}
+\subsection{Robot, sensor y observación}
+Todos los experimentos emplean el robot \texttt{GridRobotNotTurning}, con
+cuatro acciones absolutas (norte, sur, este y oeste) y rumbo constante.
+El sensor \texttt{GridLidar} lanza $N_{\text{rays}} = 120$ rayos en
+$360^\circ$, con alcance $d_{\max} = 10$ celdas y ruido gaussiano de
+desviación $10^{-3}$ celdas, y sus lecturas se agrupan en
+$N_{\text{sec}} = 8$ sectores. La observación base tiene, por tanto,
+$D_{\text{obs}} = 18$ componentes (Sección~\ref{sec:observacion}). Los
+tests con memoria implícita usan la observación ampliada de la
+Sección~\ref{sec:obs_memoria}, con $D_{\text{obs}} = 22$. Un episodio
+termina con éxito cuando el robot alcanza la meta, y se trunca si choca o
+si alcanza el límite de $400$ pasos.
 
 \subsection{Función de recompensa}
-Todos los experimentos emplean la función
-\texttt{ProgressReward} descrita en la
-Sección~\ref{sec:recompensa}, con los parámetros del
-Cuadro~\ref{tab:recompensa_params} salvo donde se indique lo contrario
-(test 27 activa la variante geodésica).
+Todos los experimentos emplean la función \texttt{ProgressReward} de la
+Sección~\ref{sec:recompensa}, con los parámetros de la
+Tabla~\ref{tab:recompensa_params}. Solo dos experimentos modifican la
+recompensa: el test 27 sustituye la distancia euclídea del término de
+progreso por la distancia geodésica, y el test 32 elimina el recorte del
+progreso negativo.
+
+Tanto la función como sus parámetros son de diseño propio. Los valores de
+la Tabla~\ref{tab:recompensa_params} no proceden de la literatura ni de
+una búsqueda sistemática de hiperparámetros: se fijaron por prueba y error
+en experimentos preliminares, anteriores al test 25, cuyos resultados
+fallidos orientaron el ajuste de la escala relativa de cada término y que
+no se recogen en esta memoria. Los tests 27 y 32 son, por tanto, las
+únicas comparaciones controladas sobre el diseño de la recompensa.
 
 \begin{table}[htbp]
     \centering
-    \caption{Parámetros de la función de recompensa
-    \texttt{ProgressReward} en el experimento de referencia.}
+    \caption[Parámetros de la función de recompensa]{Parámetros de la
+    función de recompensa \texttt{ProgressReward}, comunes a todos los
+    experimentos salvo los tests 27 y 32.}
     \label{tab:recompensa_params}
     \begin{tabular}{ll}
         \toprule
         \textbf{Parámetro} & \textbf{Valor} \\
         \midrule
         Escala de progreso $w_d$ & $10$ \\
+        Normalización $d_{\text{diag}}$ & $84{,}85$ celdas (diagonal del mapa de $60 \times 60$) \\
         Coste por paso $c_{\text{step}}$ & $0{,}05$ \\
-        Margen de seguridad $D_{\text{safe}}$ & $\tfrac{2}{3}\,d_{\max}$ ($\approx 6{,}67$ celdas) \\
+        Margen de seguridad $D_{\text{safe}}$ & $\tfrac{2}{3}\,d_{\max} \approx 6{,}67$ celdas \\
         Penalización máx.\ por proximidad $\lambda_{\text{prox}}$ & $0{,}01$ \\
         Recompensa terminal por meta $R_{\text{win}}$ & $+20$ \\
         Penalización por colisión $R_{\text{fail}}$ & $-5$ \\
         Tolerancia a la meta $\varepsilon_{\text{goal}}$ & $1$ celda \\
-        Progreso negativo recortado a cero & Sí \\
-        Métrica de distancia & Euclídea (geodésica en test 27) \\
+        Progreso negativo recortado a cero & Sí (no en el test 32) \\
+        Métrica de distancia & Euclídea (geodésica en el test 27) \\
         \bottomrule
     \end{tabular}
 \end{table}
 
-\subsection{Configuración del sensor LiDAR}
-El sensor \texttt{GridLidar} se configura con alcance máximo
-$d_{\max} = 10$ celdas, campo de visión $2\pi$ y ruido gaussiano
-aditivo $\sigma_{\text{noise}} = 10^{-3}$ celdas. El número total de
-rayos es $N_{\text{rays}} = 15\,N_{\text{sec}}$ para garantizar varias
-muestras por sector; en el experimento de referencia
-$N_{\text{sec}} = 8$ (y por tanto $N_{\text{rays}} = 120$). El sensor
-mantiene una caché de distancias por mapa, acelerada en GPU, que se
-reutiliza entre episodios siempre que el campo de visión sea $2\pi$.
+\subsection{Agentes e hiperparámetros}
+La Tabla~\ref{tab:hiperparametros} recoge los hiperparámetros de los tres
+agentes principales. Todos comparten la red \texttt{SimpleQNetwork} de
+cuatro capas ocultas de $64$ unidades con ReLU
+(Tabla~\ref{tab:arquitectura_redes}), el factor de descuento
+$\gamma = 0{,}99$ y un presupuesto de $40\,000$ episodios por ejecución.
+El PPO estándar emplea los hiperparámetros por defecto de la clase
+\texttt{PPO} de Stable-Baselines3, versión 2.3.2
+\citep{raffin2021stable,raffin2024stableppo}: tasa de aprendizaje
+$3 \cdot 10^{-4}$, \textit{rollout} de $2048$ pasos, minilotes de $64$,
+$10$ épocas, $\gamma = 0{,}99$, $\lambda = 0{,}95$, recorte $0{,}2$,
+coeficiente de valor $0{,}5$, norma máxima del gradiente $0{,}5$,
+ventajas normalizadas y sin KL objetivo. La única excepción es el
+coeficiente de entropía, que Stable-Baselines3 fija en $0$ y aquí se
+mantiene en $0{,}01$, como en \texttt{PPOAgent}. Los tests 42 y 43
+añaden además un KL objetivo de $0{,}015$. La red no es la de la
+biblioteca, de dos capas ocultas con tanh \citep{raffin2024stablepolicies},
+sino la misma \texttt{SimpleQNetwork} del resto de agentes.
+
+\begin{table}[htbp]
+    \centering
+    \caption[Hiperparámetros de los agentes]{Hiperparámetros de los tres
+    agentes principales. Entre paréntesis, los tests que se apartan del
+    valor indicado.}
+    \label{tab:hiperparametros}
+    \small
+    \resizebox{\textwidth}{!}{%
+    \begin{tabular}{llll}
+        \toprule
+        \textbf{Hiperparámetro} & \textbf{PPOAgent} & \textbf{PPO estándar} & \textbf{Double DQN con máscara} \\
+        \midrule
+        Tests & 25--35 & 41--43 & 36, 39, 40 \\
+        Tasa de aprendizaje (Adam) & $10^{-3}$ & $3 \cdot 10^{-4}$ & $5 \cdot 10^{-4}$ ($10^{-4}$ en 39) \\
+        $\lambda$ de GAE & $0{,}95$ & $0{,}95$ & --- \\
+        Recorte $\varepsilon$ & $0{,}2$ & $0{,}2$ & --- \\
+        Coef.\ de valor / entropía & $0{,}5$ / $0{,}01$ & $0{,}5$ / $0{,}01$ ($0{,}02$ en 43) & --- \\
+        Norma máx.\ del gradiente & $5$ & $0{,}5$ & $10$ \\
+        Datos de cada actualización & \textit{Buffer} de $10^5$ & \textit{Rollout} de $2048$ pasos & \textit{Buffer} de $10^5$ \\
+        Frecuencia de actualización & 1 paso por episodio & 10 épocas por \textit{rollout} & 1 cada 4 pasos \\
+        Tamaño de minilote & $64$ & $64$ & $64$ \\
+        Normalización de ventajas & No & Sí & --- \\
+        KL objetivo & --- & No (41); $0{,}015$ (42, 43) & --- \\
+        Exploración & Política estocástica & Política estocástica & $\varepsilon$: $1 \to 0{,}05$ en $5 \cdot 10^5$ pasos \\
+        Red objetivo & --- & --- & Copia cada $1000$ actualizaciones \\
+        Inicio del aprendizaje & --- & --- & Tras $5000$ transiciones \\
+        \bottomrule
+    \end{tabular}%
+    }
+\end{table}
+
+Las variantes restantes se describen por su diferencia con estos agentes.
+Los tests 37 y 38 usan \texttt{DQNAgent} sin máscara, con el objetivo
+clásico y con Double DQN respectivamente, tasa de aprendizaje
+$5 \cdot 10^{-4}$ y $\varepsilon$ con decaimiento exponencial de constante
+$\tau_\varepsilon = 1{,}5 \cdot 10^5$ pasos. Los tests 28 y 29 usan
+\texttt{RecurrentPPOAgent} (Sección~\ref{sec:ppo_lstm}) con secuencias de
+$32$ pasos y tasas de aprendizaje de $10^{-3}$ y $3 \cdot 10^{-4}$.
 
 \subsection{Entorno de ejecución}
-El entrenamiento se ejecuta en el equipo del autor con una tarjeta
-NVIDIA compatible con CUDA; cuando no hay GPU disponible, el agente
-y el sensor delegan en la CPU (en MPS si se detecta un Apple Silicon).
-El tiempo total del test 25 fue de 5\,h 49\,min para $40\,000$
-episodios en GPU, lo que da una velocidad media aproximada de $115$
-episodios por minuto. La capa de simulación emplea
-\texttt{gymnasium} 0.29+ y PyTorch; el \textit{logging} de métricas se
-realiza con \texttt{TensorBoard} y la configuración de cada ejecución se
-serializa en un fichero \texttt{config.json} dentro del directorio
-\texttt{runs/Test/<N>/}.
+El entrenamiento se ejecuta en el equipo del autor con una GPU NVIDIA
+GeForce RTX 5060 Ti, con \texttt{gymnasium} y PyTorch. Las métricas se
+registran con \texttt{TensorBoard} y la configuración completa de cada
+ejecución se guarda en un fichero \texttt{config.json} junto a sus
+registros. Una ejecución de $40\,000$ episodios dura entre $1{,}7$ y
+$5{,}8$ horas según el agente y el número de ejecuciones simultáneas.
 
 \subsection{Protocolo de evaluación}\label{sec:protocolo}
-Al final del entrenamiento, el agente se evalúa durante $1\,000$
-episodios sobre los cuatro mapas, con la semilla $0$ y en dos
-modalidades complementarias:
+Al final del entrenamiento, cada agente se evalúa durante $1\,000$
+episodios en cada una de dos modalidades:
 \begin{itemize}
-    \item \textbf{Modo \textit{sampled}}: la acción se muestrea de la
-    distribución categórica del actor, replicando el comportamiento
-    estocástico del entrenamiento.
-    \item \textbf{Modo \textit{greedy}}: la acción se escoge
-    deterministamente como el $\arg\max$ de los \textit{logits} del
-    actor; refleja el comportamiento más conservador que cabe esperar
-    en despliegue.
+    \item \textbf{Modalidad \textit{greedy}}: se elige siempre la acción
+    más probable (PPO) o la de mayor valor $Q$ (DQN). Es determinista y
+    es la que se desplegaría en un robot.
+    \item \textbf{Modalidad \textit{sampled}}: PPO muestrea la acción de
+    la distribución aprendida, como durante el entrenamiento. DQN no
+    tiene una distribución de acciones, por lo que su modalidad
+    \textit{sampled} es $\varepsilon$-greedy con $\varepsilon = 0{,}05$. Por
+    ello, la comparación justa entre DQN y PPO es la \textit{greedy}.
+\end{itemize}
+En los agentes con enmascarado, las acciones que chocan se excluyen en
+ambas modalidades. La evaluación usa siempre la semilla $0$, de modo que
+todos los agentes juegan la misma secuencia de mapas, posiciones de
+partida y metas, y las comparaciones son pareadas.
+
+Se registran, por mapa y en total, las siguientes métricas:
+\begin{itemize}
+    \item \textbf{Tasa de éxito}: porcentaje de episodios que terminan en
+    la meta.
+    \item \textbf{Choques y agotamientos del límite de pasos}
+    (\textit{timeouts}).
+    \item \textbf{Bucles}: episodios agotados en los que el robot visitó
+    alguna celda al menos $20$ veces, indicador de ciclos estables.
+    \item \textbf{Eficiencia de ruta}: mediana del cociente entre los
+    pasos del episodio y los pasos del camino mínimo calculado por BFS,
+    en los episodios con éxito; un valor de $1$ indica una ruta óptima.
 \end{itemize}
 
-Se reportan las siguientes métricas globales y por mapa:
-\begin{itemize}
-    \item Tasa de éxito (\textit{Success rate}, SR): porcentaje de
-    episodios terminados por alcanzar la meta.
-    \item Tasa de colisión y tasa de agotamiento del horizonte temporal.
-    \item \textit{Loops}: número de episodios en los que la trayectoria
-    visita alguna celda al menos veinte veces, indicador de ciclos
-    estables (típicos de la modalidad \textit{greedy}).
-    \item \textit{Path ratio}: cociente entre los pasos efectivos del
-    episodio y el camino óptimo calculado por BFS; valores próximos a
-    uno indican trayectorias eficientes.
-\end{itemize}
+Las comparaciones entre agentes entrenados con una sola semilla emplean el
+test $z$ de dos proporciones sobre los $1\,000$ episodios de evaluación
+($|z| > 1{,}96$ equivale a significación al $5\%$). Este test mide el
+ruido de la evaluación de un agente concreto, no la variabilidad del
+entrenamiento. Por ello, las configuraciones finales se entrenaron con
+cinco semillas ($0$ a $4$), como recomiendan \citet{agarwal2021deep}, y se
+comparan con la media y la desviación típica entre semillas y el test
+$t$ de Welch. Con $n = 5$ semillas por grupo los grados de libertad están
+entre $4$ y $8$, de modo que $|t| > 2{,}8$ garantiza $p < 0{,}05$ en
+todos los casos. Los intervalos de confianza del $95\%$ de la media
+usan la distribución $t$ con $4$ grados de libertad.
 
-Las comparaciones entre experimentos emplean el test $z$ de proporciones
-de dos muestras ($|z|>1{,}96$ equivale a significación estadística al $5\%$).
-
-\section{Resultados del baseline PPO (test 25)}\label{sec:resultados_baseline}
-El agente PPO del baseline alcanza una tasa de éxito acumulada del
-$83\%$ en los primeros $4\,000$ episodios y asciende hasta el
-$93\%$ al llegar a los $40\,000$ episodios, con la entropía de la
-política todavía en $0{,}55$ nats al final del entrenamiento. En la
-evaluación posterior (1\,000 episodios, semilla $0$), los resultados
-globales se recogen en el Cuadro~\ref{tab:baseline_global}.
+\subsection{Experimentos realizados}
+La Tabla~\ref{tab:experimentos} resume los experimentos. Cada uno cambia
+un único elemento respecto a otro anterior, que se indica en la última
+columna. Los experimentos anteriores al test 25 eran prototipos con
+errores que se corrigieron antes de este: la pérdida del crítico de PPO
+comparaba cada retorno con cada valor del lote, el ángulo a la meta
+estaba reflejado respecto al del LiDAR y el fin de episodio no lo
+decidía el entorno. Sus resultados no son comparables y no se incluyen.
 
 \begin{table}[htbp]
     \centering
-    \caption{Resultados del agente PPO de referencia (test 25) en la
-    evaluación final sobre los cuatro mapas (1\,000 episodios por
-    modalidad, semilla $0$). Los \textit{loops} se cuentan sobre los
-    episodios que agotan el horizonte temporal.}
-    \label{tab:baseline_global}
-    \begin{tabular}{lcccc}
+    \caption[Experimentos realizados]{Experimentos realizados. Memoria:
+    \textit{implícita} indica la observación ampliada con el último
+    desplazamiento.}
+    \label{tab:experimentos}
+    \small
+    \resizebox{\textwidth}{!}{%
+    \begin{tabular}{clcccl}
         \toprule
-        \textbf{Modalidad} & \textbf{SR global (\%)} & \textbf{Colisiones (\%)} & \textbf{Timeouts (\%)} & \textbf{Loops} \\
+        \textbf{Test} & \textbf{Agente} & \textbf{Máscara} & \textbf{Memoria} & \textbf{Semillas} & \textbf{Cambio} \\
         \midrule
-        Sampled & $93{,}9$ & $5{,}1$ & $1{,}0$ & $3$ \\
-        Greedy  & $91{,}1$ & $1{,}1$ & $7{,}8$ & $76$ \\
+        25 & PPOAgent & No & No & 1 & Referencia \\
+        26, 27, 30 & PPOAgent & No & No & 1 & 25 + currículo, geodésica, LiDAR \\
+        28 & RecurrentPPOAgent & No & GRU & 1 & 25 con GRU \\
+        29 & RecurrentPPOAgent & No & GRU & 1 & 28 con entrenamiento corregido \\
+        31 & PPOAgent & Sí & No & 5 & 25 + máscara \\
+        32 & PPOAgent & Sí & No & 1 & 31 con progreso con signo \\
+        35 & PPOAgent & Sí & Implícita & 5 & 31 + último desplazamiento \\
+        36 & Double DQN & Sí & No & 1 & 31 con DQN \\
+        37 & DQN clásico & No & No & 1 & 25 con DQN \\
+        38 & Double DQN & No & No & 1 & 37 con Double DQN \\
+        39 & Double DQN & Sí & No & 1 & 36 con tasa $10^{-4}$ \\
+        40 & Double DQN & Sí & Implícita & 5 & 35 con DQN \\
+        41 & PPO estándar & Sí & Implícita & 5 & 35 con PPO estándar \\
+        42 & PPO estándar & Sí & Implícita & 5 & 41 + KL objetivo $0{,}015$ \\
+        43 & PPO estándar & Sí & Implícita & 5 & 42 con entropía $0{,}02$ \\
+        \bottomrule
+    \end{tabular}%
+    }
+\end{table}
+
+\section{Agente de referencia (test 25)}\label{sec:resultados_baseline}
+El test 25 entrena \texttt{PPOAgent} con la observación base, sin máscara
+y sin memoria. El éxito en entrenamiento pasa del $72{,}2\%$ en los
+primeros $10\,000$ episodios al $93{,}3\%$ en los últimos $10\,000$
+(\fig{fig:test25}). Las colisiones dominan los primeros episodios y caen
+por debajo del $10\%$ hacia el episodio $1\,500$. En los últimos
+$10\,000$ episodios, tres de los cuatro mapas superan el $97\%$ de
+éxito, pero \texttt{simple\_map} se queda en el $78\%$. La entropía media de la política en los últimos
+$2\,000$ episodios es de $0{,}54$ nats, frente al máximo de
+$\ln 4 \approx 1{,}39$ nats con cuatro acciones.
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=\textwidth]{imagenes/resultados/test25_entrenamiento.pdf}
+    \caption[Entrenamiento del agente de referencia (test 25)]{Entrenamiento
+    del agente de referencia (test 25). Izquierda: proporción de episodios
+    que terminan en éxito, choque o límite de pasos. Derecha: éxito en cada
+    mapa, calculado sobre los episodios de ese mapa. Fuente: Realización
+    propia.}
+    \label{fig:test25}
+\end{figure}
+
+La Tabla~\ref{tab:baseline} recoge la evaluación. El agente alcanza un
+$91{,}1\%$ de éxito en \textit{greedy} y un $93{,}9\%$ en
+\textit{sampled}, y sus fallos son de dos tipos. En \textit{greedy}, $76$
+de los $78$ episodios agotados son bucles: el robot oscila entre unas
+pocas celdas hasta consumir los $400$ pasos. Al muestrear las acciones los
+bucles casi desaparecen ($3$), pero los choques suben de $11$ a $51$. La
+diferencia entre modalidades es máxima en \texttt{4\_obstacles}, que
+pasa del $91{,}4\%$ en \textit{greedy} al $99{,}2\%$ en
+\textit{sampled}. Las rutas con éxito son casi óptimas: la mediana del
+cociente entre pasos y camino mínimo vale $1{,}00$ en \textit{greedy} y
+$1{,}08$ en \textit{sampled}.
+
+\begin{table}[htbp]
+    \centering
+    \caption[Evaluación del agente de referencia (test 25)]{Evaluación del
+    agente de referencia (test 25): tasa de éxito por mapa y desenlace de
+    los episodios fallidos ($1\,000$ episodios por modalidad).}
+    \label{tab:baseline}
+    \begin{tabular}{lcc}
+        \toprule
+        & \textbf{\textit{Greedy}} & \textbf{\textit{Sampled}} \\
+        \midrule
+        \texttt{obstacle\_free} (\%) & $99{,}6$ & $99{,}6$ \\
+        \texttt{1\_obstacle} (\%) & $98{,}7$ & $98{,}7$ \\
+        \texttt{4\_obstacles} (\%) & $91{,}4$ & $99{,}2$ \\
+        \texttt{simple\_map} (\%) & $74{,}6$ & $77{,}8$ \\
+        \midrule
+        \textbf{Éxito total (\%)} & $\mathbf{91{,}1}$ & $\mathbf{93{,}9}$ \\
+        Choques & $11$ & $51$ \\
+        Límite de pasos (de ellos, bucles) & $78$ ($76$) & $10$ ($3$) \\
         \bottomrule
     \end{tabular}
 \end{table}
 
-En la evaluación por mapa (Cuadro~\ref{tab:baseline_por_mapa}), tres de
-los cuatro escenarios superan el $91\%$ de éxito en ambas modalidades,
-mientras que \texttt{map\_simple} se estabiliza en torno al $75$--$78\%$
-según la modalidad. La diferencia entre modalidades es especialmente
-visible en \texttt{map\_4\_square\_obstacle}, que pasa de $91{,}4\%$ en
-\textit{greedy} a $99{,}2\%$ al muestrear la política. Dicho de otro
-modo: el modo \textit{sampled} cambia los \textit{timeouts} del
-\textit{greedy} por un número mayor de colisiones, lo que se traduce en
-una tasa de éxito global más alta ($93{,}9\%$ frente a $91{,}1\%$)
-pero a costa de más pasos cerca de los obstáculos.
+El mapa \texttt{simple\_map} limita el rendimiento en ambas modalidades.
+Inicialmente se interpretó como el modo de fallo por mínimo local
+descrito por \citet{gao2025hierarchical}, en el que la política reactiva
+no sabe alejarse de la meta para rodear un obstáculo. El test 31
+(Sección~\ref{sec:res_mascara}) muestra que la causa principal eran los
+choques junto a las paredes finas de ese mapa.
 
-El análisis de las trayectorias fallidas muestra que la mayor parte de
-las colisiones en \texttt{map\_simple} se producen con el LiDAR
-detectando el obstáculo a una sola celda de distancia en la dirección de
-avance: no es un problema de percepción, sino de ruido residual de la
-política junto a una pared, que en la modalidad \textit{greedy} degenera
-en ciclos estables ($76$ de los $78$ \textit{timeouts} son
-\textit{loops}). Las trayectorias que sí alcanzan la meta son
-prácticamente óptimas: la mediana del cociente \textit{pasos\,/\,BFS}
-vale $1{,}0$ en \textit{greedy} para los cuatro mapas y oscila entre
-$1{,}0$ y $1{,}1$ en \textit{sampled}.
+\section{Variantes que no mejoraron la referencia}\label{sec:res_descartados}
+Tres experimentos modificaron el entrenamiento o la percepción del test
+25 sin mejorar su rendimiento final (Tabla~\ref{tab:descartados}):
+\begin{itemize}
+    \item \textbf{Currículo (test 26).} Un currículo de cinco etapas
+    comienza en el mapa vacío con metas cercanas y añade mapas y distancia
+    al superar umbrales de éxito. Alcanza el $80\%$ de éxito con
+    aproximadamente la mitad de pasos de entorno que el test 25, pero la
+    política final es equivalente, en línea con \citet{xue2022using}, que
+    concentran la ganancia del currículo en la fase inicial.
+    \item \textbf{Progreso geodésico (test 27).} El término de progreso
+    mide la distancia por el camino más corto que rodea los obstáculos. El
+    modo \textit{sampled} no cambia y el \textit{greedy} empeora, con
+    $137$ bucles frente a $76$.
+    \item \textbf{LiDAR de $30$ celdas (test 30).} Triplicar el alcance
+    del sensor no cambia ninguna métrica, por lo que la percepción no
+    limita el rendimiento.
+\end{itemize}
 
 \begin{table}[htbp]
     \centering
-    \caption{Tasa de éxito por mapa del baseline PPO (test 25). Entre
-    paréntesis, el número de episodios con el mapa seleccionado sobre el
-    total de $1\,000$.}
-    \label{tab:baseline_por_mapa}
+    \caption[Variantes que no mejoraron la referencia]{Variantes que no
+    mejoraron al test 25. Entre paréntesis, el estadístico $z$ frente al
+    test 25; n.s.: no significativo.}
+    \label{tab:descartados}
+    \resizebox{\textwidth}{!}{%
+    \begin{tabular}{llccc}
+        \toprule
+        \textbf{Test} & \textbf{Variante} & \textbf{\textit{Greedy} (\%)} & \textbf{\textit{Sampled} (\%)} & \textbf{\texttt{simple\_map} \textit{sampled} (\%)} \\
+        \midrule
+        25 & Referencia & $91{,}1$ & $93{,}9$ & $77{,}8$ \\
+        26 & Currículo & $89{,}3$ (n.s.) & $93{,}9$ (n.s.) & $77{,}8$ (n.s.) \\
+        27 & Progreso geodésico & $85{,}0$ ($-4{,}2$) & $93{,}4$ (n.s.) & $78{,}6$ (n.s.) \\
+        30 & LiDAR de $30$ celdas & $90{,}4$ (n.s.) & $93{,}7$ (n.s.) & $79{,}4$ (n.s.) \\
+        \bottomrule
+    \end{tabular}%
+    }
+\end{table}
+
+\section{Memoria recurrente (tests 28 y 29)}\label{sec:res_gru}
+Los bucles del modo \textit{greedy} sugieren que la política no distingue
+celdas próximas con observaciones parecidas. Los tests 28 y 29 sustituyen
+las redes de \texttt{PPOAgent} por las redes recurrentes de
+\texttt{RecurrentPPOAgent} (Sección~\ref{sec:ppo_lstm}) para comprobar si
+un estado interno resuelve esa ambigüedad.
+
+El test 28 resultó inestable (\fig{fig:gru}). Hacia el episodio $25\,000$
+el éxito en entrenamiento cae del $90\%$ a cerca del $25\%$ y tarda
+unos $7\,000$ episodios en recuperarse. La causa probable es un error de
+implementación: el agente recurrente ignoraba el recorte de gradiente y
+sus pérdidas incluían el relleno de ceros de las secuencias. En la
+evaluación logra un $77{,}4\%$ en \textit{greedy}, con $224$ bucles, y un
+$85{,}2\%$ en \textit{sampled}.
+
+El test 29 corrige ambos errores y reduce la tasa de aprendizaje a
+$3 \cdot 10^{-4}$. El entrenamiento es estable, pero la política queda por
+debajo de la de referencia: $88{,}3\%$ en \textit{greedy}
+($z = -2{,}06$) y $89{,}8\%$ en \textit{sampled} ($z = -3{,}35$). La
+política es casi determinista, con una entropía final de $0{,}26$ nats, y
+mantiene $111$ bucles en \textit{greedy} y $95$ en \textit{sampled}. La
+memoria recurrente, tal como está implementada, no elimina los ciclos.
+Además, necesita más pasos de entorno para alcanzar el mismo éxito que el
+perceptrón multicapa (\fig{fig:gru}, derecha).
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=\textwidth]{imagenes/resultados/gru_entrenamiento.pdf}
+    \caption[Entrenamiento con memoria recurrente (tests 28 y 29)]{Éxito en
+    entrenamiento del agente de referencia (test 25) y de las dos
+    variantes con GRU (tests 28 y 29), frente a los episodios y frente a
+    los pasos de entorno acumulados (media móvil de $1\,000$ episodios).
+    Fuente: Realización propia.}
+    \label{fig:gru}
+\end{figure}
+
+\section{Enmascarado de acciones inválidas (tests 31 y 32)}\label{sec:res_mascara}
+El test 31 añade al test 25 el enmascarado de la
+Sección~\ref{sec:action_masking}, sin otros cambios. Es el primer
+experimento entrenado con cinco semillas. El efecto es grande y muy
+estable entre semillas:
+\begin{itemize}
+    \item El éxito \textit{greedy} sube al $95{,}7 \pm 0{,}4\%$ y el
+    \textit{sampled} al $99{,}3 \pm 0{,}4\%$. Para la semilla $0$, frente
+    al test 25, $z = +4{,}35$ y $z = +6{,}83$ respectivamente.
+    \item En \texttt{simple\_map} el éxito sube al $90{,}4 \pm 1{,}6\%$
+    en \textit{greedy} y al $98{,}1 \pm 1{,}4\%$ en \textit{sampled},
+    frente al $74{,}6\%$ y $77{,}8\%$ del test 25.
+    \item El aprendizaje es más rápido: $85{,}0 \pm 1{,}4\%$ de éxito en
+    los primeros $10\,000$ episodios frente al $72{,}2\%$ del test 25
+    (\fig{fig:mascara}).
+\end{itemize}
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=\textwidth]{imagenes/resultados/mascara_entrenamiento.pdf}
+    \caption[Efecto del enmascarado de acciones (tests 25, 31 y 32)]{Éxito
+    en entrenamiento sin enmascarado (test 25), con enmascarado (test 31,
+    media de cinco semillas; banda: peor y mejor semilla) y con
+    enmascarado y progreso con signo (test 32). Izquierda: éxito total.
+    Derecha: éxito en \texttt{simple\_map}. Fuente: Realización propia.}
+    \label{fig:mascara}
+\end{figure}
+
+Que \texttt{simple\_map} pase del $78\%$ al $98\%$ en \textit{sampled}
+con solo impedir los choques indica que sus fallos eran colisiones junto
+a las paredes finas, y no mínimos locales: la máscara no ayuda a rodear
+un obstáculo, solo impide entrar en él. Hay que recordar, no obstante,
+que con enmascarado el robot no puede chocar, de modo que la ausencia de
+colisiones se debe a la máscara y no al aprendizaje.
+
+El único fallo que queda son los bucles en \textit{greedy}:
+$42{,}6 \pm 3{,}3$ por cada $1\,000$ episodios, que el muestreo reduce a
+$6{,}6 \pm 3{,}8$. Una explicación posible era la forma de la
+recompensa. Con el progreso negativo recortado a cero, un ciclo entre
+dos celdas en el que el robot se acerca y se aleja de la meta suma
+$+0{,}118 - 0{,}05$ en el paso de ida y $-0{,}05$ en el de vuelta, es
+decir, $+0{,}018$ por ciclo, sin contar la penalización por proximidad.
+El término recortado no es una diferencia de potencial, de modo que no
+conserva las políticas óptimas \citep{ng1999policy}. El test 32 elimina
+el recorte, con lo que el mismo ciclo cuesta $-0{,}100$. Sin embargo, los
+bucles no bajan: $59$ en \textit{greedy}, $5{,}0$ desviaciones típicas
+por encima de la media de las cinco semillas del test 31, y el éxito
+\textit{greedy} cae al $94{,}1\%$. La hipótesis queda refutada: los
+bucles no se deben a la recompensa. Este resultado procede de una sola
+semilla, por lo que el empeoramiento es probable pero no está confirmado.
+
+\section{Memoria implícita del último desplazamiento (test 35)}\label{sec:res_memoria}
+Descartada la recompensa, la explicación restante de los bucles es la
+observabilidad parcial. Con una observación local, celdas próximas
+producen observaciones casi idénticas, y una política determinista sin
+memoria puede ordenar desde cada una el movimiento hacia la otra. En un
+POMDP, una política estocástica sin memoria puede superar a cualquier
+política determinista sin memoria \citep{singh1994learning}, lo que
+explica que el muestreo rompa los ciclos. El test 35 añade al test 31 la
+observación ampliada de la Sección~\ref{sec:obs_memoria}, que incluye el
+último desplazamiento del robot.
+
+El resultado, confirmado con cinco semillas, es el mejor del trabajo
+(Tabla~\ref{tab:res_memoria}). Los bucles \textit{greedy} bajan de
+$42{,}6$ a $6{,}2$ por cada $1\,000$ episodios, el éxito \textit{greedy}
+sube al $99{,}4 \pm 0{,}4\%$, con intervalo de confianza del $95\%$
+$[98{,}9;\ 99{,}8]$, y \texttt{simple\_map} alcanza el $98{,}0\%$. Las
+modalidades \textit{greedy} y \textit{sampled} quedan prácticamente
+igualadas ($99{,}4$ frente a $99{,}7\%$). Una memoria de un solo paso en
+la observación consigue lo que la GRU de los tests 28 y 29 no logró.
+
+\begin{table}[htbp]
+    \centering
+    \caption[Efecto de la memoria implícita (tests 31 y 35)]{Efecto de la
+    memoria implícita del último desplazamiento: \texttt{PPOAgent} con
+    enmascarado sin memoria (test 31) y con memoria implícita (test 35).
+    Media $\pm$ desviación típica de cinco semillas y $t$ de Welch.}
+    \label{tab:res_memoria}
     \begin{tabular}{lccc}
         \toprule
-        \textbf{Mapa} & \textbf{Episodios} & \textbf{SR \textit{sampled} (\%)} & \textbf{SR \textit{greedy} (\%)} \\
+        \textbf{Métrica} & \textbf{Test 31} & \textbf{Test 35} & \textbf{$t$ (gl)} \\
         \midrule
-        \texttt{map\_obstacle\_free}  & $267$ & $99{,}6$ & $99{,}6$ \\
-        \texttt{map\_1\_obstacle}      & $230$ & $98{,}7$ & $98{,}7$ \\
-        \texttt{map\_4\_square\_obstacle} & $255$ & $99{,}2$ & $91{,}4$ \\
-        \texttt{map\_simple}           & $248$ & $77{,}8$ & $74{,}6$ \\
-        \midrule
-        \textbf{Global}                & $1\,000$ & $\mathbf{93{,}9}$ & $\mathbf{91{,}1}$ \\
+        Éxito \textit{greedy} (\%) & $95{,}7 \pm 0{,}4$ & $99{,}4 \pm 0{,}4$ & $16{,}0$ ($8{,}0$) \\
+        Bucles \textit{greedy} & $42{,}6 \pm 3{,}3$ & $6{,}2 \pm 3{,}8$ & $16{,}3$ ($7{,}9$) \\
+        \texttt{simple\_map} \textit{greedy} (\%) & $90{,}4 \pm 1{,}6$ & $98{,}0 \pm 0{,}8$ & $9{,}35$ ($5{,}9$) \\
+        Éxito \textit{sampled} (\%) & $99{,}3 \pm 0{,}4$ & $99{,}7 \pm 0{,}2$ & $2{,}15$ ($5{,}1$) \\
         \bottomrule
     \end{tabular}
 \end{table}
 
-\section{Estudios complementarios}\label{sec:estudios_complementarios}
-Los experimentos siguientes modifican un único elemento del baseline
-para aislar su efecto. El Cuadro~\ref{tab:comparativa_experimentos}
-resume los resultados globales; los apartados posteriores detallan cada
-estudio.
+\section{Agentes DQN (tests 36 a 40)}\label{sec:res_dqn}
+Los tests 36 a 39 comparan DQN con PPO sin memoria implícita, con una
+semilla cada uno. Todos quedan claramente por debajo de PPO en la misma
+configuración:
+\begin{itemize}
+    \item \textbf{Test 36} (Double DQN con máscara, contraparte del test
+    31): $65{,}6\%$ en \textit{greedy} frente al $95{,}9\%$ del test 31
+    con la misma semilla ($z = -17{,}2$). Los $344$ episodios fallidos son
+    todos bucles, incluso en el mapa vacío.
+    \item \textbf{Tests 37 y 38} (DQN clásico y Double DQN sin máscara,
+    contrapartes del test 25): $86{,}4\%$ y $77{,}0\%$ en
+    \textit{greedy}, frente al $91{,}1\%$ de PPO. En \textit{sampled} el
+    $5\%$ de acciones aleatorias provoca $103$ y $91$ choques.
+    \item \textbf{Test 39} (test 36 con tasa de aprendizaje $10^{-4}$): es
+    el peor agente, con un $54{,}9\%$ en \textit{greedy} y $451$ bucles.
+\end{itemize}
+
+El orden entre los tests 36, 37 y 38 no permite concluir nada sobre
+Double DQN ni sobre la máscara. Sus mesetas de entrenamiento son
+parecidas, en torno al $86$--$91\%$, y la evaluación de un único punto
+de control final de un entrenamiento inestable varía mucho. Todos los
+DQN comparten, además, una caída del éxito al comienzo del
+entrenamiento, que coincide con un $Q$ medio superior a cualquier retorno
+alcanzable (\fig{fig:dqn}, derecha). Con una recompensa de $20$ por la
+meta, un progreso neto que apenas puede superar $10$ y un coste por paso,
+el retorno de un episodio queda en torno a $30$ como máximo, y el test 36
+llega a un $Q$ medio de $37$. Es la
+sobreestimación característica de los métodos basados en valor
+\citep{vanhasselt2016deep}, que Double DQN atenúa pero no elimina.
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=\textwidth]{imagenes/resultados/dqn_entrenamiento.pdf}
+    \caption[Entrenamiento de los agentes DQN]{Entrenamiento de los agentes
+    DQN. Izquierda: éxito de \texttt{PPOAgent} (test 35) y Double DQN
+    (test 40) con la misma observación, media de cinco semillas con banda
+    entre la peor y la mejor, y de Double DQN sin memoria implícita (test
+    36). Derecha: $Q$ medio del lote de entrenamiento en los primeros
+    $5\,000$ episodios (semilla $0$) frente a una cota aproximada del
+    retorno alcanzable.
+    Fuente: Realización propia.}
+    \label{fig:dqn}
+\end{figure}
+
+El test 40 es la comparación justa entre algoritmos: Double DQN con la
+misma observación, enmascarado, recompensa, mapas y red que el test 35.
+La memoria implícita también mejora mucho a DQN: con la semilla $0$, el
+éxito \textit{greedy} pasa del $65{,}6\%$ del test 36 al $91{,}1\%$ y
+los bucles de $344$ a $88$. Sin embargo, con cinco semillas DQN queda
+claramente por debajo de PPO (Tabla~\ref{tab:res_dqn}). Su éxito
+\textit{greedy} es del $87{,}9 \pm 3{,}8\%$, con intervalo de confianza
+$[83{,}2;\ 92{,}7]$, frente al $99{,}4 \pm 0{,}4\%$ de PPO. Falla por
+bucles en \textit{greedy}, sobre todo en \texttt{simple\_map}, y su
+dispersión entre semillas es unas diez veces la de PPO: la semilla $0$,
+con un $91{,}1\%$, fue de las mejores. Sus rutas con éxito son también
+algo más largas, con una mediana de $1{,}06$ veces el camino mínimo en
+\textit{sampled} frente a $1{,}01$ de PPO.
 
 \begin{table}[htbp]
     \centering
-    \caption{Comparación de los experimentos complementarios frente al
-    baseline PPO (test 25). Las columnas $z$ reportan el estadístico
-    del test de proporciones frente al baseline sobre $1\,000$ episodios
-    por modalidad; $|z| > 1{,}96$ equivale a significación al $5\%$.}
-    \label{tab:comparativa_experimentos}
-    \begin{tabular}{lccccc}
+    \caption[DQN frente a PPOAgent con la misma observación]{Double DQN
+    (test 40) frente a \texttt{PPOAgent} (test 35) con la misma
+    observación, enmascarado y red. Media $\pm$ desviación típica de cinco
+    semillas y $t$ de Welch.}
+    \label{tab:res_dqn}
+    \begin{tabular}{lccc}
         \toprule
-        \textbf{Test} & \textbf{Variante} & \textbf{SR \textit{sampled} (\%)} & \textbf{SR \textit{greedy} (\%)} & \textbf{SR map\_simple (\%)} & \textbf{Tiempo} \\
+        \textbf{Métrica} & \textbf{Test 40 (DQN)} & \textbf{Test 35 (PPO)} & \textbf{$t$ (gl)} \\
         \midrule
-        25 & Baseline PPO                  & $93{,}9$ & $91{,}1$ & $77{,}8$ & 5\,h 49\,min \\
-        26 & + currículo (5 etapas)        & $93{,}9$ ($z\!=\!0$) & $89{,}3$ (n.s.) & $77{,}8$ (n.s.) & 3\,h 18\,min \\
-        27 & reward geodésico              & $93{,}4$ (n.s.) & $85{,}0$ ($z\!=\!-4{,}2$) & $78{,}6$ (n.s.) & 2\,h 52\,min \\
-        28 & GRU, sin \textit{grad clip}   & $85{,}2$ & $77{,}4$ & $\sim 60$ & 4\,h 37\,min \\
-        29 & GRU, con \textit{grad clip}   & $89{,}8$ ($z\!=\!-3{,}4$) & $88{,}3$ ($z\!=\!-2{,}1$) & $\sim 70$ & 2\,h 51\,min \\
-        30 & LiDAR $d_{\max} = 30$         & $93{,}7$ (n.s.) & $90{,}4$ (n.s.) & $79{,}4$ (n.s.) & 2\,h 41\,min \\
-        31 & + \textit{action masking}     & \multicolumn{3}{c}{\textit{pendiente de entrenamiento}} & -- \\
+        Éxito \textit{greedy} (\%) & $87{,}9 \pm 3{,}8$ & $99{,}4 \pm 0{,}4$ & $6{,}70$ ($4{,}1$) \\
+        \texttt{simple\_map} \textit{greedy} (\%) & $75{,}9 \pm 6{,}1$ & $98{,}0 \pm 0{,}8$ & $8{,}06$ ($4{,}1$) \\
+        Bucles \textit{greedy} & $120{,}4 \pm 38{,}2$ & $6{,}2 \pm 3{,}8$ & $6{,}66$ ($4{,}1$) \\
+        Éxito \textit{sampled} (\%) & $93{,}8 \pm 2{,}3$ & $99{,}7 \pm 0{,}2$ & $5{,}91$ ($4{,}0$) \\
+        Bucles \textit{sampled} & $62{,}2 \pm 22{,}2$ & $2{,}0 \pm 1{,}7$ & $6{,}05$ ($4{,}0$) \\
         \bottomrule
     \end{tabular}
 \end{table}
 
-\subsection{Aprendizaje por currículo (test 26)}
-El test 26 añade al baseline un currículo \texttt{SuccessCurriculum} de
-cinco etapas que empieza en el mapa vacío y añade progresivamente los
-mapas con obstáculos, con un umbral de éxito del $90\%$ (etapas 1--4)
-y del $85\%$ (etapa final) medido sobre una ventana de $500$
-episodios. Las etapas se activan en los episodios
-$0 / 1620 / 2120 / 3416 / 3916$, de modo que el agente llega al
-escenario completo tras unos $4\,000$ episodios. El currículo reduce
-sensiblemente el tiempo necesario para alcanzar el $80\%$ de éxito,
-pero la política final es estadísticamente indistinguible del baseline
-(SR \textit{sampled} $93{,}9\%$ en ambos). El resultado concuerda con
-los informes de \citet{xue2022using}, en los que la ganancia del
-currículo se concentra en la fase inicial del entrenamiento.
+\section{PPO estándar (tests 41 a 43)}\label{sec:res_ppo_estandar}
+\texttt{PPOAgent} no es el algoritmo de \citet{schulman2017proximal}: da
+un paso de gradiente por episodio sobre un \textit{buffer} de transiciones
+antiguas (Sección~\ref{sec:ppo}). Para comprobar que la ventaja sobre DQN
+no depende de esa variante, los tests 41 a 43 repiten el test 35 con
+\texttt{StandardPPOAgent}, con cinco semillas cada uno.
 
-\subsection{Progreso geodésico (test 27)}
-El test 27 sustituye la distancia euclídea del término de progreso por
-la distancia geodésica (BFS 4-conexo desde la celda meta, respetando
-los obstáculos). La hipótesis era que señalar al agente el camino que
-rodea el obstáculo mejoraría el rendimiento en \texttt{map\_simple}.
-En la práctica, el modo \textit{sampled} no mejora de forma
-significativa (SR $93{,}4\%$ frente a $93{,}9\%$) y el modo
-\textit{greedy} empeora de manera clara (SR $85{,}0\%$ frente a
-$91{,}1\%$, $z = -4{,}2$) con un aumento notable de los \textit{loops}
-($137$ frente a $76$). La señal geodésica parece inducir políticas
-determinísticas que explotan trayectorias de bordes y quedan atrapadas
-en ciclos cuando se evalúan en modo \textit{greedy}.
+El test 41 aprende mucho más deprisa que \texttt{PPOAgent}: alcanza un
+$92{,}4 \pm 1{,}6\%$ de éxito en los primeros $2\,000$ episodios, frente
+al $51{,}6 \pm 9{,}2\%$ del test 35. Sin embargo, converge
+prematuramente. Su entropía cae a unos $0{,}3$ nats antes del episodio
+$10\,000$ y apenas varía después, mientras que la de \texttt{PPOAgent}
+desciende de forma gradual (\fig{fig:ppo_estandar}, izquierda). El éxito
+en entrenamiento se estanca en el $98\%$ y la divergencia KL aproximada
+por actualización es alta, con una media de $0{,}053$. El resultado es un
+éxito \textit{greedy} del $93{,}1 \pm 1{,}1\%$, con $69$ bucles por cada
+$1\,000$ episodios: una política que se vuelve casi determinista pronto
+conserva más ciclos.
 
-\subsection{Política recurrente con GRU (tests 28 y 29)}
-Los tests 28 y 29 evalúan la variante \texttt{RecurrentPPOAgent}
-descrita en la Sección~\ref{sec:ppo_lstm}, con una capa GRU de $40$
-unidades y secuencias de longitud $32$. El test 28 reutilizó el bucle
-de entrenamiento del PPO estándar y descubrió que la clase recurrente
-no aplicaba el recorte de gradiente ni la máscara de padding; esto
-produjo un colapso del rendimiento desde el $90\%$ hasta el $25\%$
-alrededor del episodio $25\,000$. El test 29 corrige ambos problemas y
-reduce la tasa de aprendizaje a $3\!\cdot\!10^{-4}$. El entrenamiento es
-entonces estable, pero la política final queda por debajo del baseline
-MLP (SR \textit{sampled} $89{,}8\%$, $z = -3{,}4$) con una entropía
-mucho menor ($0{,}27$ nats) y entre $95$ y $111$ \textit{loops} en ambas
-modalidades. Las trayectorias exitosas son casi óptimas (mediana del
-\textit{path ratio} $= 1{,}00$), pero la memoria recurrente, tal como
-está implementada, no elimina los ciclos. Este estudio no permite
-concluir que la memoria no aporte valor en general; sí indica que, con
-esta implementación y presupuesto de entrenamiento, el MLP sigue
-siendo competitivo.
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=\textwidth]{imagenes/resultados/ppo_estandar_entropia_kl.pdf}
+    \caption[Entropía y divergencia KL del PPO estándar]{Entropía de la
+    política (izquierda) y divergencia KL aproximada por actualización
+    (derecha) de \texttt{PPOAgent} (test 35) y del PPO estándar sin límite
+    de KL (test 41), con KL objetivo $0{,}015$ (test 42) y con entropía
+    $0{,}02$ (test 43). Medias de cinco semillas. Fuente: Realización
+    propia.}
+    \label{fig:ppo_estandar}
+\end{figure}
 
-\subsection{Alcance extendido del LiDAR (test 30)}
-El test 30 aumenta el alcance del sensor a $d_{\max} = 30$ celdas (frente
-a $10$ en el baseline), manteniendo el resto de parámetros constantes.
-El margen de seguridad relativo al nuevo alcance se recalcula para que
-siga valiendo $6{,}67$ celdas en términos absolutos. El resultado es
-estadísticamente indistinguible del baseline en todas las métricas
-(SR \textit{sampled} $93{,}7\%$, $z = -0{,}2$), lo que sugiere que la
-limitación principal del baseline no reside en la percepción.
+El test 42 limita el cambio de la política en cada actualización con un
+KL objetivo de $0{,}015$: las épocas se detienen cuando la divergencia de
+un minilote supera $1{,}5$ veces ese valor. La divergencia media baja a
+$0{,}0086$ (\fig{fig:ppo_estandar}, derecha) y el éxito \textit{greedy}
+sube al $97{,}0 \pm 0{,}8\%$ ($t = 6{,}40$ frente al test 41), con los
+bucles reducidos de $69$ a $30$. El test 43 duplica el coeficiente de
+entropía, hasta $0{,}02$, sin diferencia significativa con el test 42
+($97{,}4 \pm 0{,}4\%$ en \textit{greedy}, $t = 1{,}20$), aunque con
+menor dispersión entre semillas.
 
-\subsection{Enmascarado de acciones inválidas (test 31)}
-El test 31 activa el enmascarado descrito en la
-Sección~\ref{sec:action_masking} manteniendo el resto de la
-configuración del baseline. En una prueba de humo de $40$ episodios no
-se registraron colisiones. El experimento está preparado para
-entrenamiento completo; los resultados definitivos se incorporarán a
-este capítulo cuando esté disponible la ejecución de $40\,000$
-episodios. Se espera que el enmascarado reduzca a cero las colisiones y
-no modifique de manera sustancial el comportamiento en los episodios de
-mínimo local, en los que ninguna acción individual lleva al choque y, por
-tanto, la máscara no restringe el espacio efectivo de decisión.
+El PPO estándar supera a DQN en todas sus variantes: el test 41 por
+$5{,}1$ puntos en \textit{greedy} ($t = 2{,}89$) y el test 43 por $9{,}5$
+puntos ($t = 5{,}55$). Queda, en cambio, unos dos puntos por debajo de
+\texttt{PPOAgent} ($t = 7{,}99$ entre los tests 43 y 35), y la diferencia
+se concentra en \texttt{simple\_map}, con un $90{,}3\%$ frente al
+$98{,}0\%$. Solo se ha probado un valor de KL objetivo, por lo que esta
+diferencia podría reducirse con un ajuste más fino.
+
+\section{Comparación global}\label{sec:comparacion_global}
+La Tabla~\ref{tab:global_semilla0} y la \fig{fig:evaluacion_tests} recogen
+la evaluación de la semilla $0$ de todos los experimentos, y la
+Tabla~\ref{tab:global_semillas} la de las seis configuraciones entrenadas
+con cinco semillas. Las Figuras~\ref{fig:resumen_eval}
+y~\ref{fig:resumen_entrenamiento} muestran estas seis configuraciones en
+evaluación y en entrenamiento.
+
+\begin{table}[htbp]
+    \centering
+    \caption[Evaluación de la semilla 0 de todos los experimentos]{Evaluación
+    de la semilla $0$ de todos los experimentos: éxito total, bucles,
+    choques y éxito en \texttt{simple\_map} en las dos modalidades
+    (\textit{greedy} / \textit{sampled}). La modalidad \textit{sampled} de
+    DQN es $\varepsilon$-greedy con $\varepsilon = 0{,}05$.}
+    \label{tab:global_semilla0}
+    \small
+    \begin{tabular}{clcccc}
+        \toprule
+        \textbf{Test} & \textbf{Agente} & \textbf{Éxito (\%)} & \textbf{Bucles} & \textbf{Choques} & \textbf{\texttt{simple\_map} (\%)} \\
+        \midrule
+        25 & PPOAgent & $91{,}1$ / $93{,}9$ & $76$ / $3$ & $11$ / $51$ & $74{,}6$ / $77{,}8$ \\
+        28 & GRU & $77{,}4$ / $85{,}2$ & $224$ / $140$ & $2$ / $8$ & $59{,}3$ / $63{,}3$ \\
+        29 & GRU corregida & $88{,}3$ / $89{,}8$ & $111$ / $95$ & $6$ / $7$ & $68{,}1$ / $71{,}8$ \\
+        31 & + máscara & $95{,}9$ / $99{,}4$ & $41$ / $6$ & $0$ / $0$ & $92{,}3$ / $98{,}8$ \\
+        32 & + progreso con signo & $94{,}1$ / $98{,}8$ & $59$ / $12$ & $0$ / $0$ & $89{,}1$ / $96{,}4$ \\
+        35 & + memoria implícita & $99{,}6$ / $99{,}7$ & $4$ / $1$ & $0$ / $0$ & $98{,}4$ / $98{,}8$ \\
+        \midrule
+        36 & Double DQN + máscara & $65{,}6$ / $80{,}5$ & $344$ / $195$ & $0$ / $0$ & $44{,}8$ / $61{,}7$ \\
+        37 & DQN clásico & $86{,}4$ / $85{,}9$ & $134$ / $38$ & $2$ / $103$ & $72{,}6$ / $77{,}8$ \\
+        38 & Double DQN & $77{,}0$ / $83{,}9$ & $227$ / $70$ & $3$ / $91$ & $63{,}7$ / $70{,}2$ \\
+        39 & Double DQN, lr $10^{-4}$ & $54{,}9$ / $71{,}5$ & $451$ / $285$ & $0$ / $0$ & $36{,}7$ / $57{,}7$ \\
+        40 & Double DQN + memoria & $91{,}1$ / $94{,}9$ & $88$ / $51$ & $0$ / $0$ & $79{,}8$ / $87{,}1$ \\
+        \midrule
+        41 & PPO estándar & $93{,}9$ / $98{,}1$ & $61$ / $18$ & $0$ / $0$ & $88{,}3$ / $96{,}4$ \\
+        42 & + KL objetivo & $98{,}1$ / $99{,}1$ & $19$ / $9$ & $0$ / $0$ & $92{,}3$ / $96{,}4$ \\
+        43 & + entropía $0{,}02$ & $97{,}5$ / $99{,}0$ & $22$ / $10$ & $0$ / $0$ & $90{,}7$ / $96{,}8$ \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=\textwidth]{imagenes/resultados/evaluacion_tests.pdf}
+    \caption[Evaluación de la semilla 0 de todos los experimentos]{Éxito
+    total (izquierda) y bucles por cada $1\,000$ episodios (derecha) en la
+    evaluación de la semilla $0$ de cada experimento. Fuente: Realización
+    propia.}
+    \label{fig:evaluacion_tests}
+\end{figure}
+
+\begin{table}[htbp]
+    \centering
+    \caption[Configuraciones entrenadas con cinco semillas]{Configuraciones
+    entrenadas con cinco semillas: media $\pm$ desviación típica entre
+    semillas, cada una evaluada en $1\,000$ episodios por modalidad.
+    Ninguna registra choques, porque todas usan enmascarado.}
+    \label{tab:global_semillas}
+    \small
+    \resizebox{\textwidth}{!}{%
+    \begin{tabular}{llcccc}
+        \toprule
+        \textbf{Test} & \textbf{Agente} & \textbf{\textit{Greedy} (\%)} & \textbf{\textit{Sampled} (\%)} & \textbf{Bucles \textit{greedy}} & \textbf{\texttt{simple\_map} \textit{greedy} (\%)} \\
+        \midrule
+        31 & PPOAgent, sin memoria & $95{,}7 \pm 0{,}4$ & $99{,}3 \pm 0{,}4$ & $42{,}6 \pm 3{,}3$ & $90{,}4 \pm 1{,}6$ \\
+        35 & PPOAgent & $\mathbf{99{,}4 \pm 0{,}4}$ & $\mathbf{99{,}7 \pm 0{,}2}$ & $\mathbf{6{,}2 \pm 3{,}8}$ & $\mathbf{98{,}0 \pm 0{,}8}$ \\
+        40 & Double DQN & $87{,}9 \pm 3{,}8$ & $93{,}8 \pm 2{,}3$ & $120{,}4 \pm 38{,}2$ & $75{,}9 \pm 6{,}1$ \\
+        41 & PPO estándar & $93{,}1 \pm 1{,}1$ & $98{,}1 \pm 1{,}0$ & $69{,}2 \pm 11{,}4$ & $85{,}2 \pm 2{,}9$ \\
+        42 & + KL objetivo & $97{,}0 \pm 0{,}8$ & $98{,}3 \pm 0{,}6$ & $29{,}6 \pm 7{,}5$ & $90{,}3 \pm 1{,}3$ \\
+        43 & + entropía $0{,}02$ & $97{,}4 \pm 0{,}4$ & $98{,}5 \pm 0{,}6$ & $23{,}8 \pm 4{,}7$ & $90{,}3 \pm 1{,}4$ \\
+        \bottomrule
+    \end{tabular}%
+    }
+\end{table}
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=\textwidth]{imagenes/resultados/resumen_evaluacion.pdf}
+    \caption[Evaluación de las configuraciones con cinco semillas]{Evaluación
+    de las seis configuraciones entrenadas con cinco semillas: éxito por
+    mapa en \textit{greedy} (arriba) y en \textit{sampled} (abajo,
+    izquierda), y bucles por cada $1\,000$ episodios (abajo, derecha).
+    Barras: media $\pm$ desviación típica; puntos: semillas individuales.
+    Todas salvo el test 31 usan memoria implícita. Fuente: Realización
+    propia.}
+    \label{fig:resumen_eval}
+\end{figure}
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=\textwidth]{imagenes/resultados/resumen_entrenamiento.pdf}
+    \caption[Entrenamiento de las configuraciones con cinco semillas]{Entrenamiento
+    de las seis configuraciones con cinco semillas: éxito (izquierda; línea:
+    media de las semillas; banda: peor y mejor semilla) y mediana del
+    cociente entre pasos y camino mínimo en los episodios con éxito
+    (derecha). Fuente: Realización propia.}
+    \label{fig:resumen_entrenamiento}
+\end{figure}
+
+Los resultados con cinco semillas sostienen cuatro afirmaciones:
+\begin{itemize}
+    \item \textbf{PPO supera a DQN} en las dos implementaciones. Con la
+    misma observación, enmascarado y red, \texttt{PPOAgent} supera a
+    Double DQN por $11{,}4$ puntos en \textit{greedy} ($t = 6{,}70$) y el
+    mejor PPO estándar por $9{,}5$ puntos ($t = 5{,}55$).
+    \item \textbf{La memoria implícita elimina los bucles} de
+    \texttt{PPOAgent}: de $42{,}6$ a $6{,}2$ por cada $1\,000$ episodios
+    ($t = 16{,}3$).
+    \item \textbf{DQN es mucho menos estable entre semillas}: su
+    desviación típica en \textit{greedy} es de $3{,}8$ puntos, frente a
+    $0{,}4$ de \texttt{PPOAgent}.
+    \item \textbf{El PPO estándar necesita limitar la divergencia KL}
+    para acercarse a \texttt{PPOAgent}: sin ese límite queda $6{,}3$
+    puntos por debajo en \textit{greedy}, y con él, unos dos puntos.
+\end{itemize}
+
+En entrenamiento (\fig{fig:resumen_entrenamiento}), el PPO estándar es el
+que antes alcanza un éxito alto y rutas óptimas, y DQN el único que no
+converge a rutas óptimas: su mediana de pasos se estabiliza en torno a
+$1{,}06$ veces el camino mínimo. \texttt{PPOAgent} aprende más despacio al
+principio, pero termina con el mayor éxito en entrenamiento
+($99{,}7 \pm 0{,}2\%$ en los últimos $10\,000$ episodios).
 
 \section{Discusión}\label{sec:discusion}
-Los resultados experimentales permiten extraer varias observaciones
-sobre los límites del enfoque adoptado y sobre la relación entre las
-decisiones de diseño del Capítulo~\ref{cap:diseno-arquitectura} y el
-comportamiento observado.
+Los experimentos permiten extraer varias conclusiones sobre los modos de
+fallo de la política reactiva, sobre la comparación entre algoritmos y
+sobre los límites de la evaluación realizada.
 
-\textbf{Casi todas las variantes convergen a un rendimiento similar.}
-Los tests 25 (baseline), 26 (currículo), 27 (reward geodésico) y 30
-(LiDAR extendido) terminan en una ventana estrecha de tasa de éxito
-global ($\sim 93\%$ en modo \textit{sampled}). Las variantes
-recurrentes (28 y 29) son algo peores. La convergencia a un
-rendimiento similar sugiere que, con el presupuesto de interacción
-estudiado, el cuello de botella no se encuentra en el aproximador ni en
-la percepción, sino en la señal de aprendizaje y en los patrones
-geométricos a los que la política no sabe responder.
+Los fallos de la referencia tenían dos causas distintas. El
+techo de \texttt{simple\_map} en torno al $78\%$ parecía el modo de
+fallo por mínimo local descrito por \citet{gao2025hierarchical}, pero el
+enmascarado lo eleva al $98\%$ en \textit{sampled}: eran choques junto a
+paredes finas. Los bucles restantes no dependen de la recompensa, como
+muestra el test 32, sino de la observabilidad parcial, como muestra el
+test 35. Ni el currículo, ni la distancia geodésica, ni un LiDAR de
+mayor alcance actuaban sobre ninguna de las dos causas, y por eso no
+mejoraron al test 25.
 
-\textbf{El modo de fallo persistente es un mínimo local geométrico.}
-\texttt{map\_simple} se estabiliza en torno al $78\%$ en todas las
-variantes probadas. Las trayectorias fallidas siguen el patrón descrito
-por \citet{gao2025hierarchical}: el robot queda detenido o entra en un
-ciclo frente a un bolsillo cóncavo porque la salida requiere alejarse
-transitoriamente de la meta, acción que la señal densa de progreso
-desincentiva. Ni el currículo (que ajusta la distribución de tareas
-pero no modifica la función de recompensa) ni la señal geodésica (que
-dirige la política hacia la salida pero genera ciclos deterministas en
-\textit{greedy}) resuelven este modo de fallo, y la memoria GRU
-implementada en los tests 28--29 tampoco lo hace.
+La modalidad de evaluación cambia la lectura de los resultados.
+Sin memoria, la diferencia entre \textit{sampled} y \textit{greedy} mide
+los bucles que el muestreo rompe, en coherencia con
+\citet{singh1994learning}. Sin enmascarado, el muestreo no sale gratis:
+cambia bucles por choques, y el test 25 pasa de $11$ a $51$ choques. Con
+memoria implícita ambas modalidades coinciden, lo que permite desplegar
+la política determinista sin perder rendimiento. En un sistema real esta
+es la propiedad relevante, porque una política determinista atrapada en
+un ciclo no se recupera sola.
 
-\textbf{La modalidad de evaluación cambia la lectura.} El modo
-\textit{greedy} elimina la variabilidad útil que, en modo
-\textit{sampled}, saca al agente de los ciclos: el baseline mejora de
-$91{,}1\%$ a $93{,}9\%$ al pasar de \textit{greedy} a
-\textit{sampled}, y el test 27 muestra la mayor brecha
-($85{,}0\%$ frente a $93{,}4\%$). Esta diferencia es relevante para
-una futura evaluación en un sistema real, donde una política demasiado
-determinista puede quedar atrapada en \textit{loops} que no aparecerían
-con un muestreo estocástico.
+Una memoria mínima bien elegida supera a una memoria genérica.
+La GRU de los tests 28 y 29 debía aprender qué recordar a partir de la
+señal de recompensa y no eliminó los bucles. Añadir el último
+desplazamiento a la observación codifica directamente la información que
+deshace la ambigüedad entre dos celdas vecinas. Este resultado no
+descarta la memoria recurrente en general: con otro presupuesto de
+entrenamiento, otra longitud de secuencia o junto al enmascarado podría
+comportarse de otra forma.
 
-\textbf{Compromiso entre reutilización de muestras y estabilidad.} La
-implementación de PPO empleada (Sección~\ref{sec:redes}) muestrea
-mini-lotes de un \textit{buffer} con transiciones de episodios
-anteriores, acercándose a un algoritmo \textit{off-policy}. Esta
-decisión permite al agente aprovechar transiciones recolectadas con
-versiones ligeramente antiguas de la política, con el coste de que los
-log-probabilidades utilizados en la actualización pueden quedar
-obsoletos. En el baseline el efecto no bloquea el aprendizaje, pero en
-las variantes recurrentes se combina con la ausencia inicial de recorte
-de gradiente para producir el colapso observado en el test 28. Una
-línea de trabajo futuro inmediata consiste en comparar esta
-implementación con un PPO estrictamente \textit{on-policy} sobre el
-mismo escenario, para medir la contribución específica del
-\textit{buffer}.
+PPO supera a DQN de forma robusta en este problema. La ventaja
+se mantiene con las dos implementaciones de PPO, con y sin memoria
+implícita, y en las dos modalidades de evaluación. DQN muestra además
+sobreestimación de $Q$ al comienzo del entrenamiento, rutas menos
+eficientes y una dispersión entre semillas diez veces mayor. Estas
+conclusiones se refieren a los hiperparámetros probados: para DQN solo se
+exploraron dos tasas de aprendizaje, y no se probaron variantes como
+\textit{Dueling DQN} o la repetición priorizada de experiencia.
 
-\textbf{Validez interna y limitaciones.} Las conclusiones de este
-capítulo se circunscriben al robot \texttt{GridRobotNotTurning}, a los
-cuatro mapas descritos, al algoritmo PPO con los hiperparámetros
-documentados y a los $40\,000$ episodios de entrenamiento. Las
-cifras reportadas corresponden a una única semilla ($0$); una
-estimación de la varianza entre semillas, así como la comparación
-sistemática con el agente DQN de la Sección~\ref{sec:redes}, quedan
-como líneas de trabajo pendientes antes de la defensa.
+La implementación de PPO también influye en el resultado.
+\texttt{PPOAgent}, una variante
+con \textit{buffer} y un paso de gradiente por episodio, obtiene el mejor
+resultado. El PPO estándar aprende antes pero converge prematuramente si
+no se limita la divergencia KL entre actualizaciones. Que la variante
+menos ortodoxa sea la mejor no la convierte en el algoritmo recomendado:
+sus actualizaciones son pequeñas y lentas, lo que actúa como una
+regularización implícita, y sus ventajas se calculan con políticas
+antiguas, sin las garantías del algoritmo original. Por ello, esta memoria
+distingue siempre ambas implementaciones y apoya la conclusión principal,
+PPO frente a DQN, en las dos.
+
+Por último, la validez de estas conclusiones tiene límites. Se refieren
+al robot de cuatro acciones absolutas (\texttt{GridRobotNotTurning}), a los cuatro
+mapas descritos, a los
+hiperparámetros documentados y a $40\,000$ episodios de entrenamiento.
+Conviene tener presentes varias limitaciones:
+\begin{itemize}
+    \item La evaluación usa los mismos mapas que el entrenamiento, con
+    posiciones de partida y meta nuevas. Mide, por tanto, la
+    generalización a nuevas tareas en entornos conocidos, no a mapas no
+    vistos.
+    \item El enmascarado usa la ocupación real de las celdas vecinas. Es
+    un escudo externo y no una garantía formal de seguridad
+    (Sección~\ref{sec:action_masking}).
+    \item Los tests de una sola semilla (25 a 30, 32 y 36 a 39) solo
+    permiten afirmaciones sobre esa semilla. Las conclusiones principales
+    se apoyan en las seis configuraciones con cinco semillas.
+    \item La modalidad \textit{sampled} de DQN es $\varepsilon$-greedy y
+    no es comparable con el muestreo de la política de PPO.
+    \item La cinemática es discreta, sin dinámica ni deslizamiento, y no
+    se ha validado en un robot real.
+\end{itemize}

@@ -1,8 +1,182 @@
 \makeglossaries
 
-% Introduzca de cada término del glosario su nombre y su descripción
-\newglossaryentry{latex}
-{
-    name={\LaTeX},
-    description={Sistema de composición de textos, formado mayoritariamente por macros en \TeX, que permite crear diferentes tipos de documento con una alta calidad tipográfica}
+% Términos y siglas del trabajo. Todas las entradas se imprimen mediante
+% \glsaddall (Documento_maestro.tex); la clave sort fija el orden alfabético
+% sin acentos ni comandos.
+
+\newglossaryentry{actor-critico}{
+    name={Actor-crítico}, sort={actor-critico},
+    description={Familia de algoritmos de aprendizaje por refuerzo que aprende a la vez una política (el actor), que elige las acciones, y una función de valor (el crítico), que evalúa esas acciones y reduce la varianza de la estimación del gradiente}
+}
+\newglossaryentry{adam}{
+    name={Adam}, sort={adam},
+    description={Optimizador por descenso de gradiente estocástico con tasas de aprendizaje adaptativas por parámetro, calculadas a partir de estimaciones de los momentos primero y segundo del gradiente. Es el optimizador empleado por todos los agentes de este trabajo}
+}
+\newglossaryentry{agv}{
+    name={AGV}, sort={agv},
+    description={Vehículo de guiado automático (\textit{Automated Guided Vehicle}). Robot móvil empleado en intralogística para transportar cargas entre distintas zonas de una planta o un almacén}
+}
+\newglossaryentry{apf}{
+    name={APF}, sort={apf},
+    description={Campos potenciales artificiales (\textit{Artificial Potential Fields}). Método reactivo de navegación en el que la meta ejerce una fuerza atractiva y los obstáculos fuerzas repulsivas; puede quedar atrapado en mínimos locales}
+}
+\newglossaryentry{bfs}{
+    name={BFS}, sort={bfs},
+    description={Búsqueda en anchura (\textit{Breadth-First Search}). Algoritmo de recorrido de grafos que, en una rejilla con movimientos de coste unitario, obtiene el camino mínimo. Se usa para medir la eficiencia de las rutas y la distancia geodésica}
+}
+\newglossaryentry{bptt}{
+    name={BPTT}, sort={bptt},
+    description={Retropropagación a través del tiempo (\textit{Backpropagation Through Time}). Algoritmo de entrenamiento de redes recurrentes que despliega la red a lo largo de la secuencia y propaga el gradiente hacia los pasos anteriores}
+}
+\newglossaryentry{bucle}{
+    name={Bucle}, sort={bucle},
+    description={En la evaluación de este trabajo, episodio que agota el límite de pasos y en el que el robot visita alguna celda al menos $20$ veces. Indica un ciclo estable de la política entre celdas con observaciones casi idénticas}
+}
+\newglossaryentry{buffer}{
+    name={\textit{Buffer} de repetición}, sort={buffer de repeticion},
+    description={Memoria de tamaño fijo que almacena transiciones pasadas para muestrearlas en minilotes durante el entrenamiento, lo que rompe la correlación temporal de los datos (\textit{experience replay})}
+}
+\newglossaryentry{curriculo}{
+    name={Currículo}, sort={curriculo},
+    description={Estrategia de entrenamiento que presenta al agente tareas de dificultad creciente, por ejemplo mapas más complejos o metas más lejanas, para facilitar el aprendizaje (\textit{curriculum learning})}
+}
+\newglossaryentry{ddpg}{
+    name={DDPG}, sort={ddpg},
+    description={Gradiente de política determinista profundo (\textit{Deep Deterministic Policy Gradient}). Algoritmo actor-crítico \textit{off-policy} para espacios de acciones continuos}
+}
+\newglossaryentry{divergencia-kl}{
+    name={Divergencia KL}, sort={divergencia kl},
+    description={Divergencia de Kullback-Leibler. Medida de la diferencia entre dos distribuciones de probabilidad; en PPO se usa para vigilar o limitar el cambio entre políticas sucesivas (KL objetivo)}
+}
+\newglossaryentry{double-dqn}{
+    name={Double DQN}, sort={double dqn},
+    description={Variante de DQN que selecciona la acción del objetivo con la red en línea y la evalúa con la red objetivo, lo que reduce la sobreestimación de los valores $Q$}
+}
+\newglossaryentry{dqn}{
+    name={DQN}, sort={dqn},
+    description={Red Q profunda (\textit{Deep Q-Network}). Algoritmo \textit{off-policy} basado en valor que aproxima la función de valor acción-estado con una red neuronal y la entrena con un \textit{buffer} de repetición y una red objetivo}
+}
+\newglossaryentry{drl}{
+    name={DRL}, sort={drl},
+    description={Aprendizaje por refuerzo profundo (\textit{Deep Reinforcement Learning}). Combinación del aprendizaje por refuerzo con redes neuronales profundas como aproximadores de la política o de la función de valor}
+}
+\newglossaryentry{drqn}{
+    name={DRQN}, sort={drqn},
+    description={Red Q recurrente profunda (\textit{Deep Recurrent Q-Network}). Variante de DQN que sustituye una capa densa por una capa recurrente para integrar la historia de observaciones en problemas parcialmente observables}
+}
+\newglossaryentry{enmascarado}{
+    name={Enmascarado de acciones}, sort={enmascarado de acciones},
+    description={Mecanismo que excluye de la decisión las acciones inválidas, en este trabajo las que provocarían un choque, asignando a sus \textit{logits} un valor muy negativo antes de calcular la distribución de la política o el máximo de los valores $Q$}
+}
+\newglossaryentry{entropia}{
+    name={Entropía}, sort={entropia},
+    description={Medida de la incertidumbre de la distribución de acciones de la política. Su bonificación en la función de pérdida de PPO favorece la exploración}
+}
+\newglossaryentry{episodio}{
+    name={Episodio}, sort={episodio},
+    description={Secuencia de interacciones entre el agente y el entorno desde un estado inicial hasta un estado terminal (meta o choque) o hasta agotar el límite de pasos}
+}
+\newglossaryentry{escudo}{
+    name={Escudo}, sort={escudo},
+    description={Componente externo a la política que impide ejecutar acciones inseguras (\textit{shield}). El enmascarado de este trabajo actúa como un escudo construido con información privilegiada del entorno}
+}
+\newglossaryentry{gae}{
+    name={GAE}, sort={gae},
+    description={Estimación generalizada de la ventaja (\textit{Generalized Advantage Estimation}). Estimador de la función de ventaja que pondera exponencialmente los errores de diferencia temporal mediante el parámetro $\lambda$ y regula el compromiso entre sesgo y varianza}
+}
+\newglossaryentry{greedy}{
+    name={\textit{Greedy}}, sort={greedy},
+    description={Modalidad de evaluación determinista que elige siempre la acción más probable de la política (PPO) o la de mayor valor $Q$ (DQN). Es la que se desplegaría en un robot}
+}
+\newglossaryentry{gru}{
+    name={GRU}, sort={gru},
+    description={Unidad recurrente con compuertas (\textit{Gated Recurrent Unit}). Celda recurrente con compuertas de actualización y de reinicio que conserva información a lo largo de la secuencia con menos parámetros que una LSTM}
+}
+\newglossaryentry{lidar}{
+    name={LiDAR}, sort={lidar},
+    description={Sensor de detección y medición de distancias por láser (\textit{Light Detection and Ranging}). En este trabajo se simula mediante el trazado de rayos sobre la rejilla}
+}
+\newglossaryentry{lstm}{
+    name={LSTM}, sort={lstm},
+    description={Memoria a corto y largo plazo (\textit{Long Short-Term Memory}). Celda recurrente con una celda de memoria y compuertas de entrada, olvido y salida que mitigan el desvanecimiento del gradiente}
+}
+\newglossaryentry{map-less}{
+    name={\textit{Map-less}}, sort={map-less},
+    description={Navegación sin mapa previo: la política decide a partir de observaciones locales y de la posición relativa de la meta, sin recibir el mapa completo del entorno}
+}
+\newglossaryentry{mdp}{
+    name={MDP}, sort={mdp},
+    description={Proceso de decisión de Markov (\textit{Markov Decision Process}). Marco formal del aprendizaje por refuerzo, definido por estados, acciones, una función de transición, una función de recompensa y un factor de descuento}
+}
+\newglossaryentry{memoria-implicita}{
+    name={Memoria implícita}, sort={memoria implicita},
+    description={En este trabajo, ampliación de la observación con el último desplazamiento del robot. Es una memoria de un solo paso que permite a una política sin recurrencia romper los ciclos}
+}
+\newglossaryentry{mlp}{
+    name={MLP}, sort={mlp},
+    description={Perceptrón multicapa (\textit{Multilayer Perceptron}). Red neuronal formada por capas densas con funciones de activación no lineales}
+}
+\newglossaryentry{off-policy}{
+    name={\textit{Off-policy}}, sort={off-policy},
+    description={Algoritmo de aprendizaje por refuerzo que aprende de datos generados por una política distinta de la que se optimiza, por ejemplo transiciones antiguas almacenadas en un \textit{buffer} de repetición}
+}
+\newglossaryentry{on-policy}{
+    name={\textit{On-policy}}, sort={on-policy},
+    description={Algoritmo de aprendizaje por refuerzo que aprende solo de datos generados por la política actual}
+}
+\newglossaryentry{politica}{
+    name={Política}, sort={politica},
+    description={Regla de decisión del agente que asigna a cada observación una acción o una distribución de probabilidad sobre las acciones}
+}
+\newglossaryentry{pomdp}{
+    name={POMDP}, sort={pomdp},
+    description={Proceso de decisión de Markov parcialmente observable (\textit{Partially Observable Markov Decision Process}). Extensión del MDP en la que el agente no observa el estado, sino una observación que depende de él}
+}
+\newglossaryentry{ppo}{
+    name={PPO}, sort={ppo},
+    description={Optimización de política próxima (\textit{Proximal Policy Optimization}). Algoritmo actor-crítico \textit{on-policy} que limita el cambio de la política en cada actualización mediante un objetivo recortado}
+}
+\newglossaryentry{rejilla}{
+    name={Rejilla de ocupación}, sort={rejilla de ocupacion},
+    description={Representación discreta del entorno en celdas, cada una marcada como libre u ocupada por un obstáculo (\textit{occupancy grid})}
+}
+\newglossaryentry{relu}{
+    name={ReLU}, sort={relu},
+    description={Unidad lineal rectificada (\textit{Rectified Linear Unit}). Función de activación $f(x) = \max(0, x)$}
+}
+\newglossaryentry{rl}{
+    name={RL}, sort={rl},
+    description={Aprendizaje por refuerzo (\textit{Reinforcement Learning}). Paradigma de aprendizaje en el que un agente aprende, por interacción con un entorno, una política que maximiza la recompensa acumulada esperada}
+}
+\newglossaryentry{rnn}{
+    name={RNN}, sort={rnn},
+    description={Red neuronal recurrente (\textit{Recurrent Neural Network}). Red con un estado oculto que se actualiza en cada paso y resume la historia de entradas}
+}
+\newglossaryentry{sac}{
+    name={SAC}, sort={sac},
+    description={\textit{Soft Actor-Critic}. Algoritmo actor-crítico \textit{off-policy} que maximiza la recompensa junto con la entropía de la política}
+}
+\newglossaryentry{sampled}{
+    name={\textit{Sampled}}, sort={sampled},
+    description={Modalidad de evaluación estocástica en la que PPO muestrea la acción de la distribución aprendida. En DQN equivale a $\varepsilon$-greedy con $\varepsilon = 0{,}05$}
+}
+\newglossaryentry{semilla}{
+    name={Semilla}, sort={semilla},
+    description={Valor inicial del generador de números aleatorios. Fija la inicialización de la red y la secuencia de episodios, de modo que entrenar con varias semillas mide la variabilidad del entrenamiento}
+}
+\newglossaryentry{sim-to-real}{
+    name={\textit{Sim-to-real}}, sort={sim-to-real},
+    description={Transferencia a un robot físico de una política entrenada en simulación}
+}
+\newglossaryentry{td3}{
+    name={TD3}, sort={td3},
+    description={\textit{Twin Delayed DDPG}. Variante de DDPG que usa dos críticos, retrasa la actualización de la política y suaviza la acción objetivo para reducir la sobreestimación}
+}
+\newglossaryentry{timeout}{
+    name={\textit{Timeout}}, sort={timeout},
+    description={Final de un episodio por agotar el límite de pasos sin alcanzar la meta ni chocar}
+}
+\newglossaryentry{ventaja}{
+    name={Función de ventaja}, sort={funcion de ventaja},
+    description={Diferencia $A(s,a) = Q(s,a) - V(s)$ entre el valor de tomar una acción y el valor medio del estado. Indica cuánto mejor o peor es una acción que la media de la política}
 }

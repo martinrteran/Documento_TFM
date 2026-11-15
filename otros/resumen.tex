@@ -2,9 +2,41 @@
 \section*{Resumen}
 \par\end{center}
 
-\lipsum[1-2]
+Este trabajo estudia la navegación reactiva sin mapa de un vehículo de
+guiado automático (AGV) en una rejilla bidimensional con obstáculos
+estáticos mediante aprendizaje por refuerzo profundo. El problema se
+formula como un proceso de decisión de Markov parcialmente observable
+(POMDP): el agente no recibe el mapa, sino una observación local de
+$18$ componentes formada por ocho sectores de un LiDAR simulado y por la
+distancia y el rumbo relativos a la meta. Se propone una función de
+recompensa de diseño propio, compuesta de progreso hacia la meta, coste
+por paso, penalización por proximidad a los obstáculos y términos terminales, y se
+entrenan y comparan agentes basados en valor (DQN y Double DQN) y
+actor-crítico (PPO, en una variante con \textit{buffer} y en la
+implementación estándar) sobre cuatro mapas de dificultad creciente.
+
+A lo largo de diecisiete configuraciones experimentales, seis de ellas
+con cinco semillas de entrenamiento, se identifican dos modos de fallo
+de la política reactiva y se aplica a cada uno un remedio específico.
+Las colisiones junto a paredes finas, que limitaban el éxito del mapa más
+difícil a cerca del $78\%$, se eliminan con un enmascarado de las
+acciones inválidas. Los ciclos entre celdas con observaciones casi
+idénticas, consecuencia directa de la observabilidad parcial, se reducen
+de $42{,}6$ a $6{,}2$ por cada $1\,000$ episodios al añadir a la
+observación el último desplazamiento del robot, una memoria implícita de
+un solo paso que resulta más eficaz que una red recurrente GRU. Con
+ambos mecanismos, PPO alcanza un $99{,}4 \pm 0{,}4\%$ de éxito en la
+evaluación determinista, frente al $87{,}9 \pm 3{,}8\%$ de Double DQN en
+las mismas condiciones, con rutas prácticamente óptimas y una
+dispersión entre semillas unas diez veces menor. Los resultados se
+limitan a una cinemática discreta de cuatro acciones y a mapas
+estáticos, y el enmascarado emplea información privilegiada del
+entorno; la generalización a mapas no vistos, las cinemáticas
+continuas y la transferencia a un robot real quedan como trabajo futuro.
 
 \vspace{0.5cm}
 \begin{flushleft}
-\textbf{Palabras clave}: palabra1, palabra2, palabra3
+\textbf{Palabras clave}: aprendizaje por refuerzo profundo, navegación
+sin mapa, vehículo de guiado automático, POMDP, PPO, DQN, enmascarado de
+acciones, rejilla de ocupación
 \end{flushleft}

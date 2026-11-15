@@ -64,32 +64,32 @@ es discreto y, según el modelo cinemático, se reduce a avanzar y girar
 En consecuencia, el problema abordado se plantea como una simulación de
 navegación en rejilla, y en ella se evalúa el comportamiento aprendido con
 dos algoritmos representativos: una red Q profunda (DQN) de familia
-\textit{off-policy} basada en valor, la optimización de política próxima
+\textit{off-policy} basada en valor, y la optimización de política próxima
 (PPO) de familia \textit{on-policy} actor-crítico. Queda fuera del alcance de este trabajo el navegación de un AGV físico (\textit{sim-to-real}),
-la coordinación entre varios AGV ni la navegación en presencia de
-obstáculos dinámicos (que se plantean como trabajos futuro). Las conclusiones de la memoria se derivan de los
-algoritmos, mapas, hiperparámetros y métricas evaluados.
+la coordinación entre varios AGV y la navegación en presencia de
+obstáculos dinámicos, que se plantean como trabajos futuro. Las conclusiones de la memoria se derivan de los
+algoritmos, mapas, hiperparámetros y métricas evaluadas.
 
-La propuesta añade dos elementos a este marco básico. En primer lugar, una
+La propuesta añade dos elementos a este marco. En primer lugar, una
 función de recompensa compuesta que suma a los términos ``terminales''
 (éxito, colisión, tiempo agotado), un término de progreso proporcional a la
-reducción de la distancia a la meta, un pequeño coste por paso, una
-penalización continua por proximidad a los obstáculos. En segundo lugar, un
-mecanismo heurístico de detección de estancamiento (\texttt{is\_stuck}) que
-observa la variabilidad reciente de la posición del AGV y, cuando el agente
-oscila dentro de un pasillo estrecho o permanece atrapado en un mínimo
-local de la rejilla, dispara un reinicio suave (\textit{soft reset}) que
-eleva temporalmente el factor de exploración en lugar de interrumpir el
-episodio.
+reducción de la distancia a la meta, un pequeño coste por paso, y una
+penalización continua por proximidad a los obstáculos. En segundo lugar,
+dos mecanismos que atacan los dos modos de fallo observados en la política
+reactiva: un enmascarado de acciones inválidas, que impide elegir
+movimientos que chocan, y una memoria implícita de un paso, que añade a la
+observación el último desplazamiento del AGV para que una política
+determinista no quede atrapada en ciclos entre celdas con observaciones
+casi idénticas.
 
 \section{Objetivos}\label{sec:objetivos}
-\textbf{Objetivo general.} Diseñar, implementar y evaluar en simulación una
-política de navegación reactiva libre de mapas (\textit{map-less}) para un
-robot móvil tipo AGV que opera en entornos bidimensionales de rejilla con
-obstáculos estáticos, basada en algoritmos de aprendizaje por refuerzo
-profundo.
+El objetivo general de este trabajo es diseñar, implementar y evaluar en
+simulación una política de navegación reactiva libre de mapas
+(\textit{map-less}) para un robot móvil tipo AGV que opera en entornos
+bidimensionales de rejilla con obstáculos estáticos, basada en algoritmos
+de aprendizaje por refuerzo profundo.
 
-\textbf{Objetivos específicos.}
+Para alcanzarlo, se plantean los siguientes objetivos específicos:
 \begin{itemize}
     \item Formular el problema de navegación como un proceso de decisión de
     Markov parcialmente observable (POMDP), especificando con precisión los
@@ -100,10 +100,10 @@ profundo.
     distancia y el rumbo relativos al objetivo, de modo que la dimensión del
     estado observable se mantenga acotada al variar la resolución angular
     del sensor.
-    \item Diseñar y documentar la propuesta de una función de recompensa original y el
-    criterio heurístico de detección de estancamiento utilizados durante el
-    entrenamiento, junto con el mecanismo de reinicio suave que se activa en
-    los episodios bloqueados.
+    \item Diseñar y documentar la propuesta de una función de recompensa
+    original, junto con los mecanismos de enmascarado de acciones inválidas
+    y de memoria implícita del último desplazamiento, y medir el efecto de
+    cada uno sobre los modos de fallo de la política.
     \item Implementar los agentes DQN y PPO para el espacio de acciones
     discreto propuesto, utilizando perceptrones multicapa como aproximadores
     de la función de valor y de la política.
@@ -136,8 +136,9 @@ A continuación se detalla el contenido de cada capítulo de la memoria:
     PPO.
     \item En el \textbf{capítulo 5 (Configuración experimental y análisis de
     resultados)} se detallan los escenarios de evaluación, los
-    hiperparámetros de entrenamiento, el mecanismo de reinicio suave y las
-    métricas empleadas, y se presentan los resultados obtenidos.
+    hiperparámetros de entrenamiento y las métricas empleadas, y se
+    presentan los resultados obtenidos, con la comparación entre DQN y PPO
+    sobre cinco semillas de entrenamiento.
     \item En el \textbf{capítulo 6 (Conclusiones y trabajo futuro)} se
     resumen los principales hallazgos del trabajo y se proponen líneas de
     continuación.

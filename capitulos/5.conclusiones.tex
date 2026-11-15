@@ -1,1 +1,170 @@
-\chapter{Conclusiones y trabajos futuros}
+\chapter{Conclusiones y trabajos futuros}\label{cap:conclusiones}
+
+En este capítulo se resumen las conclusiones del trabajo, organizadas
+según los objetivos planteados en la Sección~\ref{sec:objetivos}, y se
+proponen las líneas de trabajo futuro que se derivan de los resultados y
+de las limitaciones identificadas en el Capítulo~\ref{cap:resultados}.
+
+\section{Conclusiones}\label{sec:conclusiones}
+Este trabajo ha abordado la navegación reactiva sin mapa de un AGV en una
+rejilla bidimensional con obstáculos estáticos mediante aprendizaje por
+refuerzo profundo. Se ha formulado el problema como un POMDP, se ha
+construido un entorno de simulación con un LiDAR simulado y una función
+de recompensa compuesta, y se han entrenado y evaluado agentes DQN y PPO
+sobre cuatro mapas de dificultad creciente. A lo largo de diecisiete
+configuraciones experimentales, seis de ellas con cinco semillas de
+entrenamiento, se han identificado los modos de fallo de la política
+reactiva y se ha aplicado a cada uno un remedio específico. Las
+conclusiones principales son las siguientes.
+
+La observabilidad parcial no es solo un marco formal, sino la causa de
+un modo de fallo concreto. La formulación como POMDP
+(Sección~\ref{sec:pomdp}) anticipaba que una observación local no
+identifica el estado. Los experimentos lo confirman: una política
+determinista sin memoria queda atrapada en ciclos entre celdas con
+observaciones casi idénticas, y esos ciclos explican la diferencia entre
+evaluar la política de forma voraz o muestreando sus acciones. Añadir a
+la observación el último desplazamiento del robot, una memoria de un
+solo paso, reduce los ciclos de $42{,}6$ a $6{,}2$ por cada $1\,000$
+episodios y eleva el éxito \textit{greedy} de \texttt{PPOAgent} del
+$95{,}7\%$ al $99{,}4\%$, con cinco semillas. Con esta memoria las dos
+modalidades de evaluación coinciden, de modo que la política determinista
+puede desplegarse sin perder rendimiento.
+
+Una observación local compacta es suficiente. La observación de
+$18$ componentes, ocho sectores del LiDAR más la distancia y el rumbo a
+la meta, permite aprender rutas prácticamente óptimas: la mediana de los
+pasos de los episodios con éxito coincide con la del camino mínimo.
+Triplicar el alcance del sensor no cambia el rendimiento, por lo que la
+percepción no limita el problema estudiado. Una memoria mínima elegida
+con criterio resulta, además, más eficaz que una memoria genérica: la
+política recurrente con GRU no eliminó los ciclos y quedó por debajo del
+agente sin memoria.
+
+La función de recompensa de diseño propio es adecuada, y sus variantes no
+la mejoran. La recompensa compuesta de progreso, coste por paso,
+penalización por proximidad y términos terminales permite aprender en
+los cuatro mapas. Ni el progreso geodésico ni el progreso con signo
+mejoraron el resultado, y el segundo refutó la hipótesis de que los
+ciclos se debieran a la forma de la recompensa. El currículo por etapas
+aceleró la fase inicial del aprendizaje sin cambiar el rendimiento final.
+
+El enmascarado de acciones inválidas elimina las colisiones, y con ellas
+el principal límite del mapa más difícil. El techo de
+\texttt{simple\_map}, en torno al $78\%$, se debía a choques junto a
+paredes finas y no a mínimos locales, como se había supuesto
+inicialmente. Con el enmascarado, ese mapa supera el $98\%$ de éxito en
+la modalidad \textit{sampled}. Este resultado debe leerse con cautela: la
+máscara usa la ocupación real de las celdas vecinas y actúa como un
+escudo externo, no como una capacidad aprendida ni como una garantía
+formal de seguridad.
+
+PPO supera a DQN de forma robusta en este problema. Con la misma
+observación, el mismo enmascarado y la misma red, \texttt{PPOAgent}
+alcanza un $99{,}4 \pm 0{,}4\%$ de éxito \textit{greedy} frente al
+$87{,}9 \pm 3{,}8\%$ de Double DQN. La ventaja se mantiene con el PPO
+estándar, con las dos modalidades de evaluación y con o sin memoria
+implícita. DQN muestra además sobreestimación de los valores $Q$ al
+comienzo del entrenamiento, rutas menos eficientes y una dispersión entre
+semillas unas diez veces mayor que la de PPO.
+
+La implementación de PPO condiciona el resultado. El PPO
+estándar aprende antes que la variante con \textit{buffer}, pero converge
+prematuramente si no se limita la divergencia entre políticas sucesivas.
+Con un KL objetivo de $0{,}015$ se queda a unos dos puntos de
+\texttt{PPOAgent}, que obtiene el mejor resultado del trabajo pese a
+apartarse del algoritmo original. Por ello, la conclusión principal, PPO
+frente a DQN, se ha comprobado con las dos implementaciones.
+
+La metodología experimental es parte del resultado. Varias
+conclusiones intermedias cambiaron al revisar los experimentos: el fallo
+de \texttt{simple\_map} no era un mínimo local, el orden entre las
+variantes de DQN de una sola semilla era ruido y el PPO de referencia no
+era el algoritmo del artículo original. Repetir las configuraciones
+finales con cinco semillas, evaluar todos los agentes sobre los mismos
+episodios y distinguir entre la variabilidad de la evaluación y la del
+entrenamiento ha sido necesario para que las comparaciones sean fiables.
+
+Estas conclusiones se circunscriben a un robot de cuatro acciones
+absolutas con cinemática discreta, a cuatro mapas estáticos que se usan
+tanto en el entrenamiento como en la evaluación, a los hiperparámetros
+documentados y a un presupuesto de $40\,000$ episodios por ejecución. Los
+hiperparámetros no se ajustaron de forma sistemática, lo que afecta
+especialmente a DQN, del que solo se probaron dos tasas de aprendizaje.
+
+\section{Trabajos futuros}\label{sec:trabajos_futuros}
+Los resultados y las limitaciones anteriores sugieren las siguientes
+líneas de continuación, ordenadas de la más inmediata a la más ambiciosa.
+
+La primera línea es un currículo con una transición de dificultad
+gradual entre mapas. El conjunto actual de mapas presenta un salto brusco de dificultad: de
+tres mapas con obstáculos grandes y compactos se pasa a
+\texttt{simple\_map}, con obstáculos finos, pasillos estrechos y
+esquinas. El currículo probado en este trabajo ordenaba esos mismos
+cuatro mapas y la distancia a la meta, y por eso solo podía acelerar el
+comienzo del aprendizaje. La propuesta consiste en construir una familia de
+mapas cuya dificultad crezca de forma controlada, por ejemplo mediante
+generación procedimental, y medir esa dificultad con indicadores
+objetivos: la densidad de ocupación, la anchura mínima de los pasillos,
+el grosor de los obstáculos, el número de giros del camino mínimo o el
+cociente entre la distancia geodésica y la euclídea. El entrenamiento
+avanzaría por esa escala cuando el agente superase un umbral de éxito,
+y podría combinarse con la selección automática de las posiciones de
+partida en función del valor estimado por el crítico, como propone
+\textit{NavACL} \citep{xue2022using}. Cabe esperar que una transición
+gradual reduzca el número de episodios necesarios en los mapas
+difíciles y, sobre todo, que mejore la generalización.
+
+Ese currículo debería acompañarse de una evaluación de la generalización
+en mapas no vistos. Todos los agentes se han evaluado en los mismos mapas en los que se entrenaron, con
+posiciones de partida y meta nuevas. El paso siguiente es reservar un
+conjunto de mapas de prueba que la política no haya visto, de dificultad
+comparable a la de los mapas de entrenamiento, para medir si la política
+reactiva ha aprendido a navegar o ha memorizado la geometría de los
+escenarios. Esta evaluación es el complemento natural del currículo
+anterior.
+
+Otra línea es obtener la seguridad sin información privilegiada. El
+enmascarado actual consulta la ocupación real de las celdas vecinas. Una versión desplegable
+debería construir la máscara a partir de las lecturas del propio sensor o
+de un sensor de seguridad de corto alcance, con el ruido que ello
+implica, o bien sustituirla por mecanismos de aprendizaje por refuerzo
+seguro con restricciones explícitas. Comparar la política entrenada con y
+sin máscara bajo un escudo construido así indicaría cuánta capacidad de
+evitar obstáculos aprende realmente la red.
+
+También conviene explorar una memoria más rica y mejor entrenada. La
+memoria de un paso basta en estos mapas, pero podría no bastar en escenarios con ambigüedades más
+largas, como pasillos simétricos. Conviene estudiar historias de varios
+desplazamientos en la observación y repetir el estudio de la política
+recurrente con enmascarado, más semillas y estrategias de inicialización
+del estado oculto que reproduzcan mejor el estado de la red al actuar.
+
+Los hiperparámetros y las variantes de los algoritmos merecen un ajuste
+sistemático. Un barrido de hiperparámetros con el mismo presupuesto para
+cada algoritmo haría más sólida la comparación entre DQN y PPO, en
+especial en la tasa de aprendizaje de DQN. También quedan por evaluar la
+normalización de las observaciones, variantes de DQN como
+\textit{Dueling DQN} o la repetición priorizada de experiencia, y las
+variantes de PPO ya preparadas en el código: decaimiento lineal de la
+tasa de aprendizaje, recorte dual, recorte con retroceso, penalización
+adaptativa de la divergencia KL e inicialización reducida de la última
+capa de la política.
+
+El paso siguiente en cuanto al vehículo es adoptar cinemáticas más
+realistas. Todos los experimentos usan el robot de cuatro acciones
+absolutas. El entorno ya incluye un robot con orientación
+y acciones de avance y giro, que no se ha entrenado, y la
+Sección~\ref{sec:cinematica_agv} describe modelos continuos de
+tracción diferencial, de Ackermann y de AGV híbrido triciclo-diferencial
+\citep{sanchez2022modelado}. Una progresión natural es entrenar primero
+con orientación en la rejilla, después con cinemática continua y, por
+último, con la dinámica del vehículo y condiciones de adherencia
+variables.
+
+Por último, quedan los escenarios más complejos y la validación en un
+robot real. Quedan fuera del alcance de este trabajo los obstáculos dinámicos, la
+coordinación entre varios AGV y la transferencia de la simulación a un
+vehículo físico. Para esta última, un paso intermedio sería un simulador
+físico con sensores realistas, antes de la validación en un AGV
+industrial como el estudiado por \citet{sanchez2022modelado}.

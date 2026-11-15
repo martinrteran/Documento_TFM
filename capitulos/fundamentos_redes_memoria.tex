@@ -1,0 +1,36 @@
+% =============================================================================
+% Subsección opcional: Redes neuronales con memoria
+% -----------------------------------------------------------------------------
+% Se incluye desde capitulos/fundamentos_teoricos.tex con una sola línea:
+%     \input{capitulos/fundamentos_redes_memoria}
+% Para quitarla basta con comentar o borrar esa línea. Ningún otro capítulo
+% hace referencia a esta subsección, por lo que el documento sigue siendo
+% coherente sin ella. Las citas que solo se usan aquí (hochreiter1997long,
+% cho2014learning, werbos1990backpropagation, hausknecht2015deep) dejan de
+% aparecer en la bibliografía automáticamente.
+% Formato: un párrafo por línea, como fundamentos_teoricos.tex.
+% =============================================================================
+
+\subsection{Redes Neuronales con Memoria}\label{sec:fund-redes-memoria}
+El perceptrón multicapa descrito anteriormente es una función sin memoria: su salida depende únicamente de la entrada del instante actual. Esta propiedad es suficiente cuando la observación identifica el estado del entorno, como ocurre en un MDP, pero no cuando el problema es parcialmente observable. En un POMDP, dos situaciones distintas pueden producir la misma observación, y la decisión correcta depende de lo ocurrido en los instantes anteriores. Las redes neuronales recurrentes (RNN, por sus siglas en inglés, \textit{Recurrent Neural Networks}) resuelven esta limitación incorporando un estado interno, o estado oculto, que resume la historia de entradas recibidas y que puede interpretarse como una aproximación aprendida del estado de creencia del POMDP \citep{mienye2024recurrent}.
+
+En su forma más simple, una RNN actualiza en cada instante su estado oculto $\mathbf{h}_t$ combinando la entrada actual $\mathbf{x}_t$ con el estado anterior, y calcula la salida a partir del nuevo estado:
+\begin{equation}
+    \mathbf{h}_t = \tanh\left( \mathbf{W}_x \mathbf{x}_t + \mathbf{W}_h \mathbf{h}_{t-1} + \mathbf{b} \right), \qquad \mathbf{y}_t = \mathbf{W}_y \mathbf{h}_t + \mathbf{b}_y,
+\end{equation}
+donde las matrices de pesos $\mathbf{W}_x$, $\mathbf{W}_h$ y $\mathbf{W}_y$ y los sesgos se comparten entre todos los instantes de tiempo. El estado oculto se inicializa habitualmente a cero al comienzo de cada secuencia. Para entrenar la red, la secuencia se desenrolla en el tiempo, de modo que la RNN equivale a una red profunda con una capa por instante, y el gradiente se propaga hacia atrás a través de todos los pasos; este procedimiento se conoce como retropropagación a través del tiempo (BPTT, \textit{Backpropagation Through Time}) \citep{werbos1990backpropagation}. En la práctica, la secuencia se trocea en fragmentos de longitud fija y el gradiente solo se propaga dentro de cada fragmento.
+
+El inconveniente de la RNN simple es que, al multiplicar repetidamente por $\mathbf{W}_h$, el gradiente tiende a desvanecerse o a crecer sin control a lo largo de secuencias largas, lo que impide aprender dependencias lejanas en el tiempo. Las arquitecturas con puertas mitigan este problema controlando qué información se conserva y qué información se sobrescribe. La memoria a corto y largo plazo (LSTM, \textit{Long Short-Term Memory}) introduce una celda de memoria separada y tres puertas \citep{hochreiter1997long}. La unidad recurrente con puertas (GRU, \textit{Gated Recurrent Unit}) simplifica este esquema a dos puertas y un único estado \citep{cho2014learning}:
+\begin{equation}
+\begin{aligned}
+    \mathbf{z}_t &= \sigma\left( \mathbf{W}_z \mathbf{x}_t + \mathbf{U}_z \mathbf{h}_{t-1} + \mathbf{b}_z \right), \\
+    \mathbf{r}_t &= \sigma\left( \mathbf{W}_r \mathbf{x}_t + \mathbf{U}_r \mathbf{h}_{t-1} + \mathbf{b}_r \right), \\
+    \tilde{\mathbf{h}}_t &= \tanh\left( \mathbf{W}_h \mathbf{x}_t + \mathbf{U}_h \left( \mathbf{r}_t \odot \mathbf{h}_{t-1} \right) + \mathbf{b}_h \right), \\
+    \mathbf{h}_t &= \mathbf{z}_t \odot \mathbf{h}_{t-1} + \left( \mathbf{1} - \mathbf{z}_t \right) \odot \tilde{\mathbf{h}}_t,
+\end{aligned}
+\end{equation}
+donde $\sigma(\cdot)$ es la función sigmoide y $\odot$ el producto elemento a elemento. La puerta de actualización $\mathbf{z}_t$ decide en qué proporción se conserva el estado anterior y en qué proporción se reemplaza por el estado candidato $\tilde{\mathbf{h}}_t$, mientras que la puerta de reinicio $\mathbf{r}_t$ decide cuánto del estado anterior interviene en el cálculo de ese candidato. Cuando $\mathbf{z}_t$ se aproxima a uno, la información pasa intacta de un instante al siguiente, lo que facilita que el gradiente fluya a lo largo de la secuencia. Con un número de parámetros menor que el de la LSTM, la GRU ofrece un rendimiento comparable en muchas tareas secuenciales \citep{mienye2024recurrent}.
+
+En el aprendizaje por refuerzo profundo, la capa recurrente se sitúa habitualmente entre las capas que procesan la observación y las capas de salida, de modo que la política pasa a depender de la observación actual y del estado oculto, $\pi_\theta(a_t \mid \mathbf{o}_t, \mathbf{h}_{t-1})$, y lo mismo ocurre con la función de valor. \citet{hausknecht2015deep} mostraron con la red DRQN (\textit{Deep Recurrent Q-Network}), que sustituye una capa totalmente conectada de DQN por una LSTM, que una red recurrente que recibe un único fotograma puede integrar la información a lo largo del tiempo y mantener su rendimiento en versiones parcialmente observables de juegos de Atari. Su trabajo también pone de manifiesto una dificultad práctica: al entrenar con fragmentos de episodios extraídos de la memoria de experiencia, el estado oculto inicial de cada fragmento debe ponerse a cero o reconstruirse, y ninguna de las dos opciones reproduce exactamente el estado que tenía la red al actuar.
+
+La alternativa a una red recurrente es incorporar a la observación la información del pasado que se considere relevante, de forma explícita. DQN, por ejemplo, recibe los últimos cuatro fotogramas del juego en lugar de solo el actual \citep{hausknecht2015deep}. Este enfoque no requiere entrenar con secuencias y mantiene la red sin memoria, pero exige decidir de antemano qué información conservar y durante cuántos pasos. En este trabajo se evalúan ambas opciones: una política recurrente con una capa GRU (Sección~\ref{sec:ppo_lstm}) y una observación ampliada con el último desplazamiento del robot (Sección~\ref{sec:obs_memoria}).
